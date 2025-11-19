@@ -61,8 +61,15 @@ COPY --from=frontend-builder /frontend/dist ./static
 # Activate the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Expose port 8000 (FastAPI will serve both API and static files)
-EXPOSE 8000
+# Set default port (Cloud Run will override this with PORT env var)
+ENV PORT=8000
 
-# Run the FastAPI server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Expose the port
+EXPOSE $PORT
+
+# Run the FastAPI server using the PORT environment variable
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT

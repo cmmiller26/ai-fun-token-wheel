@@ -166,15 +166,25 @@ async def lifespan(app: FastAPI):
     - Clean up resources
     """
     # Startup: Load GPT-2 model once
+    import time
+    start_time = time.time()
+
     print("=" * 60)
     print("Starting AI FUN Token Wheel API...")
+    print(f"Start time: {datetime.utcnow()}")
     print("=" * 60)
 
+    print("Loading GPT-2 model...")
+    model_start = time.time()
     generator = GPT2TokenWheelGenerator(model_name='gpt2')
     app.state.generator = generator
+    model_end = time.time()
 
     print("=" * 60)
     print("Model loaded successfully! Server ready.")
+    print(f"Model load time: {model_end - model_start:.2f} seconds")
+    print(f"Total startup time: {model_end - start_time:.2f} seconds")
+    print(f"Ready time: {datetime.utcnow()}")
     print("=" * 60)
 
     # Start background task for session cleanup
