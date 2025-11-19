@@ -17,7 +17,10 @@ import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from pathlib import Path
 
 from generator import GPT2TokenWheelGenerator
 
@@ -234,6 +237,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for serving the frontend
+# Check if static directory exists (it will in production Docker container)
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 
 
 # ============================================================================
@@ -535,3 +544,27 @@ async def delete_session(session_id: str):
     del sessions[session_id]
 
     return DeleteResponse(message="Session deleted")
+
+
+# ============================================================================
+# Frontend Serving (Catch-all for SPA routing)
+# ============================================================================
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    """
+    Serve the frontend React application.
+
+    This catch-all route serves index.html for all non-API routes,
+    enabling client-side routing for the React SPA.
+
+    Only active when static directory exists (in production Docker container).
+    """
+    if static_dir.exists():
+        # Serve index.html for all routes (SPA client-side routing)
+        index_file = static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+
+    # If static files don't exist, return 404
+    raise HTTPException(status_code=404, detail="Frontend not found. Run in development mode or build Docker image.")

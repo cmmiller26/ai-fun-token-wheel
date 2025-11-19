@@ -1,39 +1,18 @@
 # Deployment Guide
 
-This document outlines how to run the AI FUN Token Wheel application using Docker Compose for local development and GitHub Codespaces for cloud-based development and deployment.
+This document outlines how to run the AI FUN Token Wheel application locally with Docker and deploy it to production using Google Cloud Run.
 
-## GitHub Codespaces (Recommended)
+## Architecture
 
-The easiest way to run this application is with GitHub Codespaces. Everything is pre-configured and ready to go.
+The application uses a **unifsied Docker architecture** where:
 
-### Quick Start with Codespaces
+- A single Docker image contains both frontend (React) and backend (FastAPI)
+- The FastAPI backend serves the React frontend as static files
+- One container, one port (8000), one deployment
 
-1. **Open in Codespaces:**
-   - Navigate to this repository on GitHub
-   - Click the green "Code" button
-   - Select the "Codespaces" tab
-   - Click "Create codespace on main"
+## Local Development with Docker
 
-2. **Wait for Setup:**
-   - GitHub will automatically build and start both the frontend and backend services
-   - This takes 2-3 minutes on first launch (subsequent launches are faster)
-
-3. **Access the Application:**
-   - Once ready, you'll see port forwarding notifications
-   - Click on the "Ports" tab in the VS Code terminal panel
-   - **Frontend:** Click the globe icon next to port 3000 to open the application
-   - **Backend API Docs:** Click the globe icon next to port 8000, then add `/docs` to the URL
-
-### Codespaces Tips
-
-- **Free Tier:** GitHub provides 60 hours/month free for all users (180 hours/month for students with GitHub Education)
-- **Stopping:** Codespaces automatically stop after 30 minutes of inactivity
-- **Restarting:** Just reopen your codespace - all your work is saved
-- **Sharing:** You can make ports public to share your running app with others
-
-## Local Development with Docker Compose
-
-Run both the frontend and backend services on your local machine using Docker Compose.
+Run the application on your local machine using Docker Compose.
 
 ### Prerequisites
 
@@ -42,162 +21,339 @@ Run both the frontend and backend services on your local machine using Docker Co
 
 ### Quick Start
 
-1. **Build and Start Services:**
+1. **Build and Start the Application:**
 
-   From the project root directory, execute:
+   From the project root directory:
 
    ```bash
-   docker-compose up --build
+   docker compose up --build
    ```
 
-   This command builds the Docker images for both the frontend and backend, and then starts them.
-   If you want to run them in the background:
+   To run in the background:
 
    ```bash
-   docker-compose up -d --build
+   docker compose up -d --build
    ```
 
 2. **Access the Application:**
 
-   Once the services are running, you can access the application:
-   - **Frontend:** http://localhost:3000
-   - **Backend API:** http://localhost:8000
-   - **API Docs:** http://localhost:8000/docs
+   Once running, access at:
 
-### Stop Services
+   - **Application (Frontend + Backend):** <http://localhost:8000>
+   - **API Documentation:** <http://localhost:8000/docs>
 
-To stop the running services:
+### Stop the Application
 
-```bash
-docker-compose down
-```
-
-To stop services and remove associated volumes (including the Hugging Face model cache):
+To stop the running application:
 
 ```bash
-docker-compose down -v
+docker compose down
 ```
 
-### Development Mode
+To stop and remove the Hugging Face model cache:
 
-- **Backend:** The `docker-compose.yml` mounts the backend code into the container, so changes to Python files will be reflected (you may need to restart the backend service for changes to take effect).
+```bash
+docker compose down -v
+```
 
-- **Frontend:** For live development with hot-reloading, it's recommended to run the Vite development server directly on your host machine:
+### Development Mode (Without Docker)
 
-  ```bash
-  cd frontend
-  npm install
-  npm run dev
-  ```
+For local development with hot-reloading:
 
-  When running the frontend locally this way, it will automatically proxy `/api` requests to the backend running at `http://localhost:8000`.
+**Terminal 1 - Backend:**
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+**Terminal 2 - Frontend:**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+When running this way:
+
+- Frontend runs at <http://localhost:5173> (Vite dev server)
+- Backend runs at <http://localhost:8000>
+- Vite proxies `/api` requests to the backend
+
+## Production Deployment with Google Cloud Run
+
+Deploy to Google Cloud Run for a public, scalable URL that students can access.
+
+### Prerequisites
+
+- Google Cloud account ([Sign up here](https://cloud.google.com/))
+- gcloud CLI installed ([Installation guide](https://cloud.google.com/sdk/docs/install))
+- A Google Cloud project created
+
+### Setup
+
+1. **Authenticate with Google Cloud:**
+
+   ```bash
+   gcloud auth login
+   ```
+
+2. **Set your project:**
+
+   ```bash
+   gcloud config set project YOUR_PROJECT_ID
+   ```
+
+3. **Enable required APIs:**
+
+   ```bash
+   gcloud services enable run.googleapis.com
+   gcloud services enable cloudbuild.googleapis.com
+   ```
+
+### Manual Deployment
+
+From the project root directory:
+
+```bash
+gcloud run deploy ai-token-wheel \
+  --source . \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 2Gi \
+  --cpu 1 \
+  --port 8000 \
+  --timeout 300
+```
+
+After deployment, you'll see a URL like:
+
+```url
+https://ai-token-wheel-xxxxx-uc.a.run.app
+```
+
+**This is your public URL!** Share it with students.
+
+### Deployment from GitHub Container Registry
+
+If you've pushed images to GHCR via GitHub Actions:
+
+```bash
+gcloud run deploy ai-token-wheel \
+  --image ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 2Gi \
+  --cpu 1 \
+  --port 8000 \
+  --timeout 300
+```
+
+### Automated Deployment from GitHub
+
+The project includes GitHub Actions that automatically deploy to Cloud Run on every push to main.
+
+**Setup:**
+
+1. **Create a Google Cloud service account:**
+
+   ```bash
+   gcloud iam service-accounts create github-deploy \
+     --display-name="GitHub Deploy Service Account"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/run.admin"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountUser"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/storage.admin"
+   ```
+
+2. **Create and download a service account key:**
+
+   ```bash
+   gcloud iam service-accounts keys create key.json \
+     --iam-account=github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com
+   ```
+
+3. **Add GitHub Repository Secrets:**
+
+   Go to: Repository → Settings → Secrets and variables → Actions → New repository secret
+
+   Add these secrets:
+   - **Name:** `GCP_PROJECT_ID` | **Value:** Your Google Cloud project ID
+   - **Name:** `GCP_SA_KEY` | **Value:** Contents of `key.json` (entire JSON)
+   - **Name:** `GCP_REGION` | **Value:** `us-central1` (or preferred region)
+
+4. **Push to main** - deployment happens automatically!
+
+The workflow:
+
+1. Builds unified Docker image (frontend + backend)
+2. Pushes to GitHub Container Registry
+3. Deploys to Cloud Run
+
+### Cost Information
+
+**Google Cloud Run Free Tier:**
+
+- 2 million requests per month
+- 360,000 GB-seconds of memory
+- 180,000 vCPU-seconds
+- 1 GB network egress per month
+
+For a classroom tool with moderate usage (100-500 students), this typically **stays within the free tier**.
+
+**Estimated monthly cost:**
+
+- Light usage (free tier): $0
+- Moderate usage: $5-10/month
 
 ## GitHub Container Registry
 
-Docker images for this project are automatically built and published to GitHub Container Registry (GHCR) on every push to the main branch.
+Docker images are automatically built and published to GHCR on every push to main.
 
 ### Using Pre-built Images
 
-You can pull and run the pre-built images without building them locally:
+Pull and run without building locally:
 
 ```bash
-# Pull images
-docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-backend:latest
-docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-frontend:latest
+# Pull the image
+docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
 
-# Run backend
-docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-backend:latest
-
-# Run frontend (in another terminal)
-docker run -p 3000:3000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-frontend:latest
+# Run locally
+docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
 ```
 
-Replace `YOUR_USERNAME` with the GitHub username or organization name.
-
-### Deploying to Other Platforms
-
-The Docker images in GHCR can be deployed to various platforms:
-
-- **Google Cloud Run:** Deploy directly from GHCR with one click
-- **Azure Container Apps:** Import images from GHCR
-- **AWS App Runner:** Pull from GHCR and deploy
-- **Any server with Docker:** Use `docker-compose` with GHCR images
+Access at <http://localhost:8000>
 
 ## Troubleshooting
 
 ### Models not loading
 
-The first time the backend runs, it will download the GPT-2 model (~500MB). This is cached in the `huggingface-cache` volume locally. Be patient on first startup.
+First run downloads GPT-2 (~500MB). Cloud Run may timeout on first startup. If this happens, trigger another request - the model will be cached.
 
 ### Port conflicts (Local)
 
-If ports 3000 or 8000 are in use on your local machine, modify the `ports` mappings in `docker-compose.yml`:
+If port 8000 is in use, modify `docker compose.yml`:
 
 ```yaml
 ports:
-  - "YOUR_PORT:3000"  # for frontend
-  - "YOUR_PORT:8000"  # for backend
+  - "YOUR_PORT:8000"
 ```
 
-### Memory issues
+### Memory issues (Local)
 
-PyTorch and the GPT-2 model require ~2GB RAM. Ensure Docker Desktop has sufficient memory allocated in its settings (Preferences → Resources → Memory).
+PyTorch and GPT-2 require ~2GB RAM. Ensure Docker Desktop has sufficient memory:
+Docker Desktop → Settings → Resources → Memory
+
+### Cloud Run cold starts
+
+Cloud Run scales to zero when idle. First request after idle may take 10-30 seconds. Subsequent requests are fast.
+
+For consistent performance, set minimum instances:
+
+```bash
+gcloud run services update ai-token-wheel --min-instances=1
+```
+
+**Note:** Minimum instances may incur charges beyond the free tier.
 
 ### Viewing logs
 
-For local Docker Compose logs:
+**Local Docker logs:**
 
 ```bash
-docker-compose logs
-docker-compose logs -f backend  # Follow backend logs
-docker-compose logs -f frontend # Follow frontend logs
+docker compose logs
+docker compose logs -f app  # Follow logs in real-time
 ```
 
-For GitHub Codespaces logs:
-
-Check the Terminal panel in VS Code and look at the running services.
-
-## Advanced Usage (Local Docker)
-
-### Custom build arguments
-
-You can pass custom build arguments to your Docker Compose build:
+**Cloud Run logs:**
 
 ```bash
-docker-compose build --build-arg PYTHON_VERSION=3.11
+# View recent logs
+gcloud run logs read ai-token-wheel --limit=50
+
+# Stream logs in real-time
+gcloud run logs tail ai-token-wheel
 ```
 
-### Inspect running containers
+### Frontend not loading
+
+If you see API responses but no UI:
+
+- Check that `static/` directory exists in container
+- Verify: `docker run -it ai-fun-token-wheel ls -la static/`
+
+## Advanced Usage
+
+### Inspect running container
 
 ```bash
-docker-compose ps
-docker-compose exec backend bash
-docker-compose exec frontend sh
+docker compose ps
+docker compose exec app bash
 ```
 
 ### Clean up everything
 
 ```bash
-# Remove all Docker Compose containers, networks, and volumes
-docker-compose down -v
+# Remove containers, networks, and volumes
+docker compose down -v
 
-# Remove all unused Docker objects (images, containers, volumes, networks)
+# Remove all unused Docker objects
 docker system prune -a
 ```
 
-### Using GHCR images in docker-compose
+### Update Cloud Run service
 
-You can modify `docker-compose.yml` to use pre-built images from GHCR instead of building locally:
+```bash
+# Re-deploy with latest code
+gcloud run deploy ai-token-wheel --source .
+```
+
+Or push to GitHub and let automated deployment handle it!
+
+### Custom Docker build
+
+Build manually:
+
+```bash
+docker build -t ai-fun-token-wheel .
+docker run -p 8000:8000 ai-fun-token-wheel
+```
+
+### Using GHCR in docker compose
+
+Modify `docker compose.yml` to use pre-built images:
 
 ```yaml
 services:
-  backend:
-    image: ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-backend:latest
-    # Remove the 'build' section
-
-  frontend:
-    image: ghcr.io/YOUR_USERNAME/ai-fun-token-wheel-frontend:latest
+  app:
+    image: ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
     # Remove the 'build' section
 ```
 
-This is faster if images are already built and published.
+This is faster than building locally.
+
+## GitHub Codespaces
+
+This project is configured for GitHub Codespaces. Click "Code" → "Codespaces" → "Create codespace" to get a pre-configured development environment in your browser.
+
+Once created:
+
+```bash
+docker compose up --build
+```
+
+The app will be available via Codespaces' port forwarding.

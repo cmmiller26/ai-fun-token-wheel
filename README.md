@@ -32,19 +32,15 @@ The application visualizes token generation as a probability wheel:
 
 ## Architecture
 
-The project consists of two main components:
+The application uses a **unified Docker architecture**:
 
-- **Backend**: Python/FastAPI server with PyTorch and Hugging Face Transformers
+- **Single container** combines both frontend and backend
+- **Frontend**: React/Vite application (built to static files)
+- **Backend**: Python/FastAPI server
   - Loads and runs GPT-2 model locally (no API costs)
   - Calculates token probabilities via model inference
+  - Serves both API endpoints and frontend static files
   - Manages generation sessions and context
-  - API endpoints for starting sessions and selecting tokens
-
-- **Frontend**: React/Vite application
-  - SVG-based wheel visualization
-  - CSS animations for spinning effects
-  - Calculates wedge angles from probabilities
-  - Handles user interactions (spin and manual selection)
 
 For detailed architecture information, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -78,19 +74,18 @@ The easiest way to run the project:
 git clone <repository-url>
 cd ai-fun-token-wheel
 
-# Build and start both services
-docker-compose up --build
+# Build and start the application
+docker compose up --build
 ```
 
 Access the application:
 
-- **Frontend**: <http://localhost:3000>
-- **Backend API**: <http://localhost:8000>
-- **API Documentation**: <http://localhost:8000/docs>
+- **Application:** <http://localhost:8000>
+- **API Documentation:** <http://localhost:8000/docs>
 
 The first run will download the GPT-2 model (~500MB), which is cached for future runs.
 
-For detailed Docker and GitHub Codespaces deployment instructions, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+For detailed local development and production deployment instructions, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ### Manual Setup (Without Docker)
 
@@ -111,7 +106,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The backend will be available at <http://localhost:8000>
+Backend available at <http://localhost:8000>
 
 #### Frontend Setup
 
@@ -126,9 +121,9 @@ npm install
 npm run dev
 ```
 
-The frontend will be available at <http://localhost:5173> (Vite default) or <http://localhost:3000>
+Frontend available at <http://localhost:5173> (Vite dev server)
 
-**Note**: If running manually, you may need to update the API endpoint in the frontend code to point to `http://localhost:8000` instead of the Docker service name.
+**Note**: When running separately, the frontend automatically proxies `/api` requests to <http://localhost:8000>.
 
 ### Stopping the Application
 
@@ -136,10 +131,10 @@ If using Docker:
 
 ```bash
 # Stop services
-docker-compose down
+docker compose down
 
 # Stop and remove cached models
-docker-compose down -v
+docker compose down -v
 ```
 
 If running manually, press `Ctrl+C` in each terminal.
@@ -166,23 +161,22 @@ If running manually, press `Ctrl+C` in each terminal.
 
 ## Project Structure
 
-```text
+```
 ai-fun-token-wheel/
 ├── backend/
 │   ├── main.py              # FastAPI server and endpoints
 │   ├── generator.py         # GPT-2 model wrapper
-│   ├── requirements.txt     # Python dependencies
-│   └── Dockerfile          # Backend container
+│   └── requirements.txt     # Python dependencies
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx         # Main React component
 │   │   └── ...
-│   ├── package.json        # Node dependencies
-│   └── Dockerfile          # Frontend container
+│   └── package.json        # Node dependencies
 ├── docs/
-│   └── ARCHITECTURE.md     # Detailed technical documentation
-│   └── DEPLOYMENT.md       # Deployment and Docker setup guide
-├── docker-compose.yml      # Orchestration for both services
+│   ├── ARCHITECTURE.md     # Detailed technical documentation
+│   └── DEPLOYMENT.md       # Deployment guide
+├── Dockerfile              # Unified container build
+├── docker compose.yml      # Local orchestration
 └── README.md              # This file
 ```
 
@@ -205,7 +199,7 @@ For detailed API documentation, visit <http://localhost:8000/docs> when the back
 
 - **Python 3.11**: Core language
 - **FastAPI**: Modern async web framework
-- **PyTorch**: Deep learning framework
+- **PyTorch**: Deep learning framework (CPU-only for efficiency)
 - **Transformers**: Hugging Face library for GPT-2
 - **Uvicorn**: ASGI server
 
@@ -221,11 +215,14 @@ For detailed API documentation, visit <http://localhost:8000/docs> when the back
 
 - **Docker & Docker Compose**: Containerization
 - **GitHub Container Registry**: Container image hosting
-- **GitHub Codespaces**: Cloud development environment
+- **Google Cloud Run**: Production hosting platform
+- **GitHub Actions**: CI/CD pipeline
 
 ## Development
 
-### Backend Development
+### Local Development with Hot-Reloading
+
+**Backend:**
 
 ```bash
 cd backend
@@ -235,7 +232,7 @@ uvicorn main:app --reload
 
 The `--reload` flag enables hot-reloading on code changes.
 
-### Frontend Development
+**Frontend:**
 
 ```bash
 cd frontend
@@ -270,7 +267,7 @@ Configuration options can be passed in the `/api/start` request:
 
 Environment variables can be set in `.env` files:
 
-- `VITE_API_URL`: Backend API URL (set during deployment)
+- `VITE_API_URL`: Backend API URL (automatically set during Docker build)
 
 ## Known Limitations
 
@@ -284,7 +281,31 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detailed discussion of de
 
 ## Deployment
 
-For detailed instructions on running the application locally with Docker and using GitHub Codespaces, please refer to [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+### Production Deployment
+
+Deploy to Google Cloud Run:
+
+```bash
+gcloud run deploy ai-token-wheel \
+  --source . \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 2Gi \
+  --cpu 1 \
+  --port 8000 \
+  --timeout 300
+```
+
+### Automated Deployment
+
+The project includes GitHub Actions for automatic deployment. Push to `main` branch to trigger:
+
+1. Build unified Docker image
+2. Push to GitHub Container Registry
+3. Deploy to Cloud Run
+
+For complete deployment instructions, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Troubleshooting
 
@@ -294,12 +315,11 @@ The first run downloads GPT-2 (~500MB). This is cached in Docker volumes or `~/.
 
 ### Port conflicts
 
-Modify ports in `docker-compose.yml`:
+Modify port in `docker compose.yml`:
 
 ```yaml
 ports:
-  - "YOUR_PORT:80"   # frontend
-  - "YOUR_PORT:8000" # backend
+  - "YOUR_PORT:8000"
 ```
 
 ### Memory issues
@@ -308,17 +328,16 @@ Ensure Docker has at least 2GB RAM allocated (Docker Desktop → Settings → Re
 
 ### Connection refused
 
-Check that both services are running:
+Check that the service is running:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 View logs:
 
 ```bash
-docker-compose logs backend
-docker-compose logs frontend
+docker compose logs app
 ```
 
 ## Contributing
@@ -355,7 +374,7 @@ This project is created for educational purposes at the University of Iowa.
 For issues or questions:
 
 1. Check [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for technical details
-
+2. Review [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for deployment help
 3. Review the troubleshooting section above
 4. Open an issue on the repository
 
