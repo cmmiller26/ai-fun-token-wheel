@@ -2,7 +2,7 @@
 FastAPI Server for AI FUN Token Wheel Generator
 
 Provides REST API endpoints for session-based token generation and wheel visualization.
-Each session maintains its own GPT-2 generator instance and generation state.
+Uses a singleton GPT-2 generator instance shared across all sessions.
 
 Educational purpose: Backend API for demonstrating how LLMs generate text by sampling
 from probability distributions visualized as a spinning wheel.
@@ -10,6 +10,8 @@ from probability distributions visualized as a spinning wheel.
 
 from typing import Dict, List, Optional
 from datetime import datetime
+from contextlib import asynccontextmanager
+import asyncio
 import uuid
 
 from fastapi import FastAPI, HTTPException
@@ -106,28 +108,100 @@ class SessionData:
     def __init__(
         self,
         session_id: str,
-        generator: GPT2TokenWheelGenerator,
         current_context: str,
         min_threshold: float,
         secondary_threshold: float
     ):
         self.session_id = session_id
-        self.generator = generator
         self.current_context = current_context
         self.history: List[str] = []
         self.step = 0
         self.created_at = datetime.utcnow()
+        self.last_accessed = datetime.utcnow()
         self.min_threshold = min_threshold
         self.secondary_threshold = secondary_threshold
 
-        # Store the current distribution and wedges
+        # Store the current distribution
         self.current_distribution: Optional[Dict] = None
-        self.current_wedges: Optional[List[Dict]] = None
 
 
 # In-memory session storage
 # Format: {session_id: SessionData}
 sessions: Dict[str, SessionData] = {}
+
+# Session configuration
+SESSION_TTL_MINUTES = 30
+CLEANUP_INTERVAL_MINUTES = 5
+
+
+# ============================================================================
+# Application Lifecycle Management
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager for startup and shutdown.
+
+    On startup:
+    - Load GPT-2 model once and store in app.state
+    - Start background task for session cleanup
+
+    On shutdown:
+    - Cancel background cleanup task
+    - Clean up resources
+    """
+    # Startup: Load GPT-2 model once
+    print("=" * 60)
+    print("Starting AI FUN Token Wheel API...")
+    print("=" * 60)
+
+    generator = GPT2TokenWheelGenerator(model_name='gpt2')
+    app.state.generator = generator
+
+    print("=" * 60)
+    print("Model loaded successfully! Server ready.")
+    print("=" * 60)
+
+    # Start background task for session cleanup
+    cleanup_task = asyncio.create_task(cleanup_expired_sessions())
+
+    try:
+        yield
+    finally:
+        # Shutdown: Cancel cleanup task
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        print("Server shutting down...")
+
+
+async def cleanup_expired_sessions():
+    """
+    Background task that runs every CLEANUP_INTERVAL_MINUTES to remove expired sessions.
+
+    Sessions expire after SESSION_TTL_MINUTES of inactivity (based on last_accessed).
+    """
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL_MINUTES * 60)
+
+        now = datetime.utcnow()
+        expired_sessions = []
+
+        for session_id, session_data in sessions.items():
+            time_since_access = (now - session_data.last_accessed).total_seconds() / 60
+            if time_since_access > SESSION_TTL_MINUTES:
+                expired_sessions.append(session_id)
+
+        # Remove expired sessions
+        for session_id in expired_sessions:
+            del sessions[session_id]
+            print(f"Cleaned up expired session: {session_id}")
+
+        if expired_sessions:
+            print(f"Removed {len(expired_sessions)} expired session(s)")
 
 
 # ============================================================================
@@ -137,7 +211,8 @@ sessions: Dict[str, SessionData] = {}
 app = FastAPI(
     title="AI FUN Token Wheel API",
     description="Backend API for visualizing LLM token generation as a probability wheel",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Enable CORS for frontend (allow all origins for development)
@@ -170,24 +245,24 @@ async def start_generation(request: StartRequest):
     """
     Start a new text generation session.
 
-    Creates a new session with a unique UUID, initializes a GPT2TokenWheelGenerator,
-    gets the initial token distribution, maps it to wedges, and pre-samples the first token.
+    Creates a new session with a unique UUID, uses the shared GPT-2 generator,
+    gets the initial token distribution, and returns tokens with probabilities.
 
     Args:
         request: StartRequest containing prompt and optional model/threshold parameters
 
     Returns:
-        StartResponse with session_id, context, wedges, and pre-selected token info
+        StartResponse with session_id, context, and tokens
 
     Raises:
-        HTTPException: 500 if model initialization or generation fails
+        HTTPException: 500 if generation fails
     """
     try:
         # Generate unique session ID
         session_id = str(uuid.uuid4())
 
-        # Initialize GPT-2 generator
-        generator = GPT2TokenWheelGenerator(model_name=request.model)
+        # Use the shared generator from app.state
+        generator = app.state.generator
 
         # Get initial token distribution
         distribution = generator.get_next_token_distribution(
@@ -199,17 +274,15 @@ async def start_generation(request: StartRequest):
         # Get tokens with probabilities (no angles - frontend handles that)
         tokens = generator.get_tokens_with_probabilities(distribution)
 
-        # Create session data
+        # Create session data (no longer stores generator instance)
         session_data = SessionData(
             session_id=session_id,
-            generator=generator,
             current_context=request.prompt,
             min_threshold=request.min_threshold,
             secondary_threshold=request.secondary_threshold
         )
         # Store current distribution for later token selection
         session_data.current_distribution = distribution
-        session_data.current_wedges = None  # No longer needed
 
         # Store session
         sessions[session_id] = session_data
@@ -244,12 +317,15 @@ async def spin_wheel(request: SessionIdRequest):
         raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
 
     session = sessions[request.session_id]
+    session.last_accessed = datetime.utcnow()  # Update last accessed time
 
     if session.current_distribution is None:
         raise HTTPException(status_code=500, detail="No current distribution in session")
 
     try:
-        sampled_token_info = session.generator.sample_token_from_distribution(
+        # Use the shared generator
+        generator = app.state.generator
+        sampled_token_info = generator.sample_token_from_distribution(
             session.current_distribution
         )
 
@@ -280,31 +356,34 @@ async def select_token(request: SelectRequest):
         and next tokens if continuing
 
     Raises:
-        HTTPException: 404 if session not found, 500 if generation fails
+        HTTPException: 404 if session not found, 400 if invalid request, 500 if generation fails
     """
     # Retrieve session
     if request.session_id not in sessions:
         raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
 
     session = sessions[request.session_id]
+    session.last_accessed = datetime.utcnow()  # Update last accessed time
 
     try:
         # Check if we have current distribution
         if session.current_distribution is None:
-            raise HTTPException(status_code=500, detail="No current distribution in session")
+            raise HTTPException(status_code=400, detail="No current distribution in session")
 
+        # Use the shared generator
+        generator = app.state.generator
         selected_token_id = request.selected_token_id
 
         # If the frontend provides a specific token ID (from a spin, or a click on a specific wedge),
         # we can just decode it. This avoids an error if the token was sampled from the "other" group.
         if selected_token_id != -1:
-            selected_token = session.generator.tokenizer.decode([selected_token_id])
+            selected_token = generator.tokenizer.decode([selected_token_id])
             # Create a minimal token_info dict for should_end_generation
             token_info = {'token_id': selected_token_id, 'token': selected_token}
         else:
             # If token_id is -1, user clicked the generic "Other" wedge manually.
             # Here, we must sample a token from that group. select_token_by_id handles this.
-            token_info = session.generator.select_token_by_id(
+            token_info = generator.select_token_by_id(
                 session.current_distribution,
                 -1
             )
@@ -321,21 +400,21 @@ async def select_token(request: SelectRequest):
         session.step += 1
 
         # Check if we should end generation
-        should_continue = not session.generator.should_end_generation(
+        should_continue = not generator.should_end_generation(
             token_info=token_info,
             context=new_context
         )
 
         if should_continue:
             # Get next token distribution
-            next_distribution = session.generator.get_next_token_distribution(
+            next_distribution = generator.get_next_token_distribution(
                 context=new_context,
                 min_threshold=session.min_threshold,
                 secondary_threshold=session.secondary_threshold
             )
 
             # Get tokens with probabilities
-            next_tokens = session.generator.get_tokens_with_probabilities(next_distribution)
+            next_tokens = generator.get_tokens_with_probabilities(next_distribution)
 
             # Store distribution for next iteration
             session.current_distribution = next_distribution
@@ -384,6 +463,7 @@ async def get_session(session_id: str):
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
     session = sessions[session_id]
+    session.last_accessed = datetime.utcnow()  # Update last accessed time
 
     return SessionResponse(
         session_id=session.session_id,

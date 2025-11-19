@@ -14,8 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from fastapi.testclient import TestClient
 from uuid import UUID
+from unittest.mock import MagicMock
 
 from main import app, sessions
+from generator import GPT2TokenWheelGenerator
 
 
 # ============================================================================
@@ -27,6 +29,12 @@ def client():
     """Create a TestClient instance for making API requests."""
     # Clear sessions before each test
     sessions.clear()
+
+    # Initialize the generator in app.state if not already present
+    # This simulates what the lifespan context manager does
+    if not hasattr(app.state, 'generator') or app.state.generator is None:
+        app.state.generator = GPT2TokenWheelGenerator(model_name='gpt2')
+
     return TestClient(app)
 
 
@@ -55,10 +63,29 @@ def completed_session(client, sample_session):
     # Create session with a prompt that will likely end quickly
     session_id = sample_session(prompt="The")
 
+    # Get the first token
+    start_response = client.post("/api/start", json={"prompt": "The"})
+    session_id = start_response.json()["session_id"]
+
     # Keep selecting until should_continue is False
     max_iterations = 100  # Safety limit
     for _ in range(max_iterations):
-        response = client.post("/api/select", json={"session_id": session_id})
+        # Need to provide a token_id for selection
+        # Get current session to find a valid token
+        session_data = sessions.get(session_id)
+        if session_data and session_data.current_distribution:
+            tokens = session_data.current_distribution['tokens']
+            if tokens:
+                token_id = tokens[0]['token_id']
+            else:
+                token_id = -1
+        else:
+            break
+
+        response = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id
+        })
         assert response.status_code == 200
         data = response.json()
 
@@ -80,8 +107,7 @@ def test_start_creates_session(client):
     data = response.json()
     assert "session_id" in data
     assert "context" in data
-    assert "wedges" in data
-    assert "selected_token_info" in data
+    assert "tokens" in data
     assert "step" in data
 
 
@@ -99,57 +125,29 @@ def test_start_returns_valid_session_id(client):
         pytest.fail(f"session_id '{session_id}' is not a valid UUID")
 
 
-def test_start_returns_wedges(client):
-    """Test that wedges list is non-empty."""
+def test_start_returns_tokens(client):
+    """Test that tokens list is non-empty."""
     response = client.post("/api/start", json={"prompt": "The cat sat on the"})
 
     assert response.status_code == 200
-    wedges = response.json()["wedges"]
+    tokens = response.json()["tokens"]
 
-    assert isinstance(wedges, list)
-    assert len(wedges) > 0
+    assert isinstance(tokens, list)
+    assert len(tokens) > 0
 
 
-def test_start_wedges_sum_to_360(client):
-    """Test that wedge angles sum to 360 degrees."""
+def test_start_tokens_probabilities_sum_to_one(client):
+    """Test that token probabilities sum to approximately 1.0."""
     response = client.post("/api/start", json={"prompt": "The cat sat on the"})
 
     assert response.status_code == 200
-    wedges = response.json()["wedges"]
+    tokens = response.json()["tokens"]
 
-    # Sum up all wedge angles
-    total_angle = sum(w["end_angle"] - w["start_angle"] for w in wedges)
+    # Sum up all token probabilities
+    total_prob = sum(t["probability"] for t in tokens)
 
-    # Should be very close to 360 (allow small floating point error)
-    assert abs(total_angle - 360.0) < 0.01
-
-
-def test_start_has_selected_token(client):
-    """Test that selected_token_info is present."""
-    response = client.post("/api/start", json={"prompt": "The cat sat on the"})
-
-    assert response.status_code == 200
-    data = response.json()
-    token_info = data["selected_token_info"]
-
-    assert "token" in token_info
-    assert "token_id" in token_info
-    assert "probability" in token_info
-    assert "target_angle" in token_info
-
-
-def test_start_selected_token_in_wedges(client):
-    """Test that selected token exists in wedges list."""
-    response = client.post("/api/start", json={"prompt": "The cat sat on the"})
-
-    assert response.status_code == 200
-    data = response.json()
-    selected_token = data["selected_token_info"]["token"]
-    wedges = data["wedges"]
-
-    # Selected token should be in one of the wedges
-    wedge_tokens = [w["token"] for w in wedges]
-    assert selected_token in wedge_tokens
+    # Should be very close to 1.0 (allow small floating point error)
+    assert abs(total_prob - 1.0) < 0.01
 
 
 def test_start_step_is_zero(client):
@@ -185,24 +183,8 @@ def test_start_with_custom_thresholds(client):
     assert response.status_code == 200
     # Should still work with custom thresholds
     data = response.json()
-    assert "wedges" in data
-    assert len(data["wedges"]) > 0
-
-
-def test_start_with_different_model(client):
-    """Test that different GPT-2 variant can be specified."""
-    # Note: This test assumes gpt2 model is available
-    # In real environment, might want to test with gpt2-medium, etc.
-    response = client.post(
-        "/api/start",
-        json={
-            "prompt": "Hello world",
-            "model": "gpt2"
-        }
-    )
-
-    assert response.status_code == 200
-    assert "session_id" in response.json()
+    assert "tokens" in data
+    assert len(data["tokens"]) > 0
 
 
 # ============================================================================
@@ -213,7 +195,14 @@ def test_select_valid_session(client, sample_session):
     """Test successful token selection with valid session."""
     session_id = sample_session()
 
-    response = client.post("/api/select", json={"session_id": session_id})
+    # Get a valid token_id from the session
+    session_data = sessions.get(session_id)
+    token_id = session_data.current_distribution['tokens'][0]['token_id']
+
+    response = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id
+    })
 
     assert response.status_code == 200
     data = response.json()
@@ -225,7 +214,10 @@ def test_select_valid_session(client, sample_session):
 
 def test_select_invalid_session(client):
     """Test 404 error for non-existent session_id."""
-    response = client.post("/api/select", json={"session_id": "nonexistent-uuid"})
+    response = client.post("/api/select", json={
+        "session_id": "nonexistent-uuid",
+        "selected_token_id": 1234
+    })
 
     assert response.status_code == 404
 
@@ -238,8 +230,15 @@ def test_select_updates_context(client, sample_session):
     session_response = client.get(f"/api/session/{session_id}")
     initial_context = session_response.json()["current_context"]
 
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id = session_data.current_distribution['tokens'][0]['token_id']
+
     # Select token
-    select_response = client.post("/api/select", json={"session_id": session_id})
+    select_response = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id
+    })
     data = select_response.json()
 
     new_context = data["new_context"]
@@ -253,50 +252,62 @@ def test_select_increments_step(client, sample_session):
     """Test that step counter increases."""
     session_id = sample_session()
 
+    # Get first token
+    session_data = sessions.get(session_id)
+    token_id1 = session_data.current_distribution['tokens'][0]['token_id']
+
     # Select first token
-    response1 = client.post("/api/select", json={"session_id": session_id})
+    response1 = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id1
+    })
     step1 = response1.json()["step"]
 
     # Select second token (if generation continues)
     if response1.json()["should_continue"]:
-        response2 = client.post("/api/select", json={"session_id": session_id})
+        session_data = sessions.get(session_id)
+        token_id2 = session_data.current_distribution['tokens'][0]['token_id']
+        response2 = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id2
+        })
         step2 = response2.json()["step"]
         assert step2 == step1 + 1
 
 
-def test_select_returns_next_wedges(client, sample_session):
-    """Test that next wedges are provided when continuing."""
+def test_select_returns_next_tokens(client, sample_session):
+    """Test that next tokens are provided when continuing."""
     session_id = sample_session()
 
-    response = client.post("/api/select", json={"session_id": session_id})
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id = session_data.current_distribution['tokens'][0]['token_id']
+
+    response = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id
+    })
     data = response.json()
 
     if data["should_continue"]:
-        assert "next_wedges" in data
-        assert data["next_wedges"] is not None
-        assert len(data["next_wedges"]) > 0
-
-
-def test_select_next_selected_token(client, sample_session):
-    """Test that next token is pre-selected when continuing."""
-    session_id = sample_session()
-
-    response = client.post("/api/select", json={"session_id": session_id})
-    data = response.json()
-
-    if data["should_continue"]:
-        assert "next_selected_token_info" in data
-        assert data["next_selected_token_info"] is not None
-        assert "token" in data["next_selected_token_info"]
-        assert "target_angle" in data["next_selected_token_info"]
+        assert "next_tokens" in data
+        assert data["next_tokens"] is not None
+        assert len(data["next_tokens"]) > 0
 
 
 def test_select_should_continue_true(client, sample_session):
     """Test that should_continue is True during generation."""
     session_id = sample_session(prompt="Once upon a time")
 
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id = session_data.current_distribution['tokens'][0]['token_id']
+
     # First selection should typically continue
-    response = client.post("/api/select", json={"session_id": session_id})
+    response = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id
+    })
     data = response.json()
 
     # Most of the time, first selection should want to continue
@@ -317,20 +328,30 @@ def test_select_should_continue_false(client, completed_session):
     # So the last select call should have returned should_continue=False
 
 
-def test_select_no_next_wedges_when_done(client, sample_session):
-    """Test that no next_wedges when should_continue=False."""
+def test_select_no_next_tokens_when_done(client, sample_session):
+    """Test that no next_tokens when should_continue=False."""
     session_id = sample_session()
 
     # Keep selecting until done
     max_iterations = 100
     for _ in range(max_iterations):
-        response = client.post("/api/select", json={"session_id": session_id})
+        # Get a valid token_id
+        session_data = sessions.get(session_id)
+        if session_data and session_data.current_distribution:
+            tokens = session_data.current_distribution['tokens']
+            token_id = tokens[0]['token_id'] if tokens else -1
+        else:
+            break
+
+        response = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id
+        })
         data = response.json()
 
         if not data["should_continue"]:
-            # When done, next_wedges and next_selected_token_info should be None
-            assert data["next_wedges"] is None
-            assert data["next_selected_token_info"] is None
+            # When done, next_tokens should be None
+            assert data["next_tokens"] is None
             break
 
 
@@ -454,7 +475,18 @@ def test_full_generation_flow(client):
     iteration_count = 0
 
     for i in range(max_iterations):
-        select_response = client.post("/api/select", json={"session_id": session_id})
+        # Get a valid token_id
+        session_data = sessions.get(session_id)
+        if session_data and session_data.current_distribution:
+            tokens = session_data.current_distribution['tokens']
+            token_id = tokens[0]['token_id'] if tokens else -1
+        else:
+            break
+
+        select_response = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id
+        })
         assert select_response.status_code == 200
 
         data = select_response.json()
@@ -486,8 +518,15 @@ def test_context_accumulates(client, sample_session):
     context1 = session1.json()["current_context"]
     initial_len = len(context1)
 
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id1 = session_data.current_distribution['tokens'][0]['token_id']
+
     # Select first token
-    select1 = client.post("/api/select", json={"session_id": session_id})
+    select1 = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id1
+    })
     context2 = select1.json()["new_context"]
 
     # Context should be longer
@@ -495,7 +534,12 @@ def test_context_accumulates(client, sample_session):
 
     # Select second token if possible
     if select1.json()["should_continue"]:
-        select2 = client.post("/api/select", json={"session_id": session_id})
+        session_data = sessions.get(session_id)
+        token_id2 = session_data.current_distribution['tokens'][0]['token_id']
+        select2 = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id2
+        })
         context3 = select2.json()["new_context"]
 
         # Context should be even longer
@@ -510,13 +554,25 @@ def test_step_counter_increments(client, sample_session):
     session0 = client.get(f"/api/session/{session_id}")
     assert session0.json()["step"] == 0
 
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id1 = session_data.current_distribution['tokens'][0]['token_id']
+
     # After first select, step should be 1
-    select1 = client.post("/api/select", json={"session_id": session_id})
+    select1 = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id1
+    })
     assert select1.json()["step"] == 1
 
     # After second select, step should be 2 (if continuing)
     if select1.json()["should_continue"]:
-        select2 = client.post("/api/select", json={"session_id": session_id})
+        session_data = sessions.get(session_id)
+        token_id2 = session_data.current_distribution['tokens'][0]['token_id']
+        select2 = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id2
+        })
         assert select2.json()["step"] == 2
 
 
@@ -528,14 +584,26 @@ def test_history_accumulates(client, sample_session):
     session0 = client.get(f"/api/session/{session_id}")
     assert len(session0.json()["history"]) == 0
 
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id1 = session_data.current_distribution['tokens'][0]['token_id']
+
     # After first select, history should have 1 token
-    select1 = client.post("/api/select", json={"session_id": session_id})
+    select1 = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id1
+    })
     session1 = client.get(f"/api/session/{session_id}")
     assert len(session1.json()["history"]) == 1
 
     # After second select, history should have 2 tokens (if continuing)
     if select1.json()["should_continue"]:
-        select2 = client.post("/api/select", json={"session_id": session_id})
+        session_data = sessions.get(session_id)
+        token_id2 = session_data.current_distribution['tokens'][0]['token_id']
+        select2 = client.post("/api/select", json={
+            "session_id": session_id,
+            "selected_token_id": token_id2
+        })
         session2 = client.get(f"/api/session/{session_id}")
         assert len(session2.json()["history"]) == 2
 
@@ -556,12 +624,25 @@ def test_multiple_sessions_independent(client):
     # Sessions should be different
     assert session_id1 != session_id2
 
+    # Get valid token_ids for each session
+    session_data1 = sessions.get(session_id1)
+    token_id1 = session_data1.current_distribution['tokens'][0]['token_id']
+
+    session_data2 = sessions.get(session_id2)
+    token_id2 = session_data2.current_distribution['tokens'][0]['token_id']
+
     # Select token in first session
-    select1 = client.post("/api/select", json={"session_id": session_id1})
+    select1 = client.post("/api/select", json={
+        "session_id": session_id1,
+        "selected_token_id": token_id1
+    })
     context1 = select1.json()["new_context"]
 
     # Select token in second session
-    select2 = client.post("/api/select", json={"session_id": session_id2})
+    select2 = client.post("/api/select", json={
+        "session_id": session_id2,
+        "selected_token_id": token_id2
+    })
     context2 = select2.json()["new_context"]
 
     # Contexts should be different (different starting prompts)
@@ -604,15 +685,22 @@ def test_start_response_schema(client):
     # Check all required fields
     assert isinstance(data["session_id"], str)
     assert isinstance(data["context"], str)
-    assert isinstance(data["wedges"], list)
-    assert isinstance(data["selected_token_info"], dict)
+    assert isinstance(data["tokens"], list)
     assert isinstance(data["step"], int)
 
 
 def test_select_response_schema(client, sample_session):
     """Test that all required fields are present with correct types."""
     session_id = sample_session()
-    response = client.post("/api/select", json={"session_id": session_id})
+
+    # Get a valid token_id
+    session_data = sessions.get(session_id)
+    token_id = session_data.current_distribution['tokens'][0]['token_id']
+
+    response = client.post("/api/select", json={
+        "session_id": session_id,
+        "selected_token_id": token_id
+    })
 
     assert response.status_code == 200
     data = response.json()
@@ -625,52 +713,28 @@ def test_select_response_schema(client, sample_session):
 
     # Optional fields depend on should_continue
     if data["should_continue"]:
-        assert isinstance(data["next_wedges"], list)
-        assert isinstance(data["next_selected_token_info"], dict)
+        assert isinstance(data["next_tokens"], list)
     else:
-        assert data["next_wedges"] is None
-        assert data["next_selected_token_info"] is None
-
-
-def test_wedge_info_schema(client):
-    """Test that wedge objects have all required fields."""
-    response = client.post("/api/start", json={"prompt": "The cat"})
-
-    assert response.status_code == 200
-    wedges = response.json()["wedges"]
-
-    # Check first wedge has all required fields
-    wedge = wedges[0]
-    assert isinstance(wedge["token"], str)
-    assert isinstance(wedge["token_id"], int)
-    assert isinstance(wedge["probability"], float)
-    assert isinstance(wedge["start_angle"], (int, float))
-    assert isinstance(wedge["end_angle"], (int, float))
-    assert isinstance(wedge["is_special"], bool)
-    assert isinstance(wedge["is_other"], bool)
-
-    # Validate ranges
-    assert 0.0 <= wedge["probability"] <= 1.0
-    assert 0.0 <= wedge["start_angle"] < 360.0
-    assert 0.0 < wedge["end_angle"] <= 360.0
+        assert data["next_tokens"] is None
 
 
 def test_token_info_schema(client):
-    """Test that token info has all required fields."""
+    """Test that token objects have all required fields."""
     response = client.post("/api/start", json={"prompt": "The cat"})
 
     assert response.status_code == 200
-    token_info = response.json()["selected_token_info"]
+    tokens = response.json()["tokens"]
 
-    # Check all required fields
-    assert isinstance(token_info["token"], str)
-    assert isinstance(token_info["token_id"], int)
-    assert isinstance(token_info["probability"], float)
-    assert isinstance(token_info["target_angle"], (int, float))
+    # Check first token has all required fields
+    token = tokens[0]
+    assert isinstance(token["token"], str)
+    assert isinstance(token["token_id"], int)
+    assert isinstance(token["probability"], float)
+    assert isinstance(token["is_special"], bool)
+    assert isinstance(token["is_other"], bool)
 
     # Validate ranges
-    assert 0.0 <= token_info["probability"] <= 1.0
-    assert 0.0 <= token_info["target_angle"] < 360.0
+    assert 0.0 <= token["probability"] <= 1.0
 
 
 # ============================================================================
@@ -685,11 +749,15 @@ def test_start_with_empty_prompt(client):
     assert response.status_code == 422
 
 
-def test_select_with_missing_session_id(client):
-    """Test 422 for missing session_id field."""
-    response = client.post("/api/select", json={})
+def test_select_with_missing_fields(client):
+    """Test 422 for missing required fields."""
+    # Missing session_id
+    response1 = client.post("/api/select", json={"selected_token_id": 123})
+    assert response1.status_code == 422
 
-    assert response.status_code == 422
+    # Missing selected_token_id
+    response2 = client.post("/api/select", json={"session_id": "test-id"})
+    assert response2.status_code == 422
 
 
 def test_malformed_requests(client):
