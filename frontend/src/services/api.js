@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * Start a new token generation session
@@ -29,7 +29,7 @@ export const startGeneration = async (
     requestBody.secondary_threshold = secondary_threshold;
   }
 
-  const response = await axios.post(`${API_BASE_URL}/start`, requestBody);
+  const response = await axios.post(`${API_BASE_URL}/api/start`, requestBody);
   return response.data;
 };
 
@@ -39,7 +39,7 @@ export const startGeneration = async (
  * @returns {Promise} Sampled token data including target_angle
  */
 export const spinWheel = async (sessionId) => {
-  const response = await axios.post(`${API_BASE_URL}/spin`, {
+  const response = await axios.post(`${API_BASE_URL}/api/spin`, {
     session_id: sessionId,
   });
   return response.data;
@@ -52,7 +52,7 @@ export const spinWheel = async (sessionId) => {
  * @returns {Promise} Selected token data and next state
  */
 export const selectToken = async (sessionId, selectedTokenId) => {
-  const response = await axios.post(`${API_BASE_URL}/select`, {
+  const response = await axios.post(`${API_BASE_URL}/api/select`, {
     session_id: sessionId,
     selected_token_id: selectedTokenId,
   });
@@ -65,7 +65,7 @@ export const selectToken = async (sessionId, selectedTokenId) => {
  * @returns {Promise} Session state
  */
 export const getSession = async (sessionId) => {
-  const response = await axios.get(`${API_BASE_URL}/session/${sessionId}`);
+  const response = await axios.get(`${API_BASE_URL}/api/session/${sessionId}`);
   return response.data;
 };
 
@@ -75,6 +75,6 @@ export const getSession = async (sessionId) => {
  * @returns {Promise} Deletion confirmation
  */
 export const deleteSession = async (sessionId) => {
-  const response = await axios.delete(`${API_BASE_URL}/session/${sessionId}`);
+  const response = await axios.delete(`${API_BASE_URL}/api/session/${sessionId}`);
   return response.data;
 };

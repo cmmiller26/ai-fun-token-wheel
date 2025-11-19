@@ -8,6 +8,7 @@ Educational purpose: Backend API for demonstrating how LLMs generate text by sam
 from probability distributions visualized as a spinning wheel.
 """
 
+import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -300,14 +301,18 @@ async def start_generation(request: StartRequest):
         # Convert tokens to Pydantic models
         token_models = [WedgeInfo(**token) for token in tokens]
 
-        return StartResponse(
+        response = StartResponse(
             session_id=session_id,
             context=request.prompt,
             tokens=token_models,
             step=0
         )
+        
+        logging.info(f"Returning response: {response.model_dump()}")
+        return response
 
     except Exception as e:
+        logging.error(f"Error during generation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to start generation: {str(e)}")
 
 

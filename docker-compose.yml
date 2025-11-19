@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Backend service (FastAPI + PyTorch)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-fun-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount code for development (comment out for production)
+      - ./backend:/app
+      # Cache for Hugging Face models
+      - huggingface-cache:/root/.cache/huggingface
+    restart: unless-stopped
+    networks:
+      - ai-fun-network
+
+  # Frontend service (React + serve)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: ai-fun-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - ai-fun-network
+
+volumes:
+  # Persistent volume for downloaded models
+  huggingface-cache:
+
+networks:
+  ai-fun-network:
+    driver: bridge
