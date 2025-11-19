@@ -167,17 +167,35 @@ The project includes GitHub Actions that automatically deploy to Cloud Run on ev
    gcloud iam service-accounts create github-deploy \
      --display-name="GitHub Deploy Service Account"
 
+   # Cloud Run admin (create/update services)
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/run.admin"
 
+   # Service account user (deploy as service account)
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/iam.serviceAccountUser"
 
+   # Cloud Build (build from source)
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/cloudbuild.builds.builder"
+
+   # Artifact Registry (create repository and store built images)
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/artifactregistry.admin"
+
+   # Storage admin (Cloud Build uses Cloud Storage)
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/storage.admin"
+
+   # Service Usage Consumer (allow service account to use enabled APIs)
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/serviceusage.serviceUsageConsumer"
    ```
 
 2. **Create and download a service account key:**

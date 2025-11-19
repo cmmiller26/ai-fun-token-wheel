@@ -161,7 +161,7 @@ If running manually, press `Ctrl+C` in each terminal.
 
 ## Project Structure
 
-```
+```text
 ai-fun-token-wheel/
 ├── backend/
 │   ├── main.py              # FastAPI server and endpoints
@@ -176,7 +176,7 @@ ai-fun-token-wheel/
 │   ├── ARCHITECTURE.md     # Detailed technical documentation
 │   └── DEPLOYMENT.md       # Deployment guide
 ├── Dockerfile              # Unified container build
-├── docker compose.yml      # Local orchestration
+├── docker-compose.yml      # Local orchestration
 └── README.md              # This file
 ```
 

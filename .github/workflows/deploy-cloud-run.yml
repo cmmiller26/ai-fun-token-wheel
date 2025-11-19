@@ -37,22 +37,11 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Log in to GitHub Container Registry
-        run: |
-          echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-
-      - name: Configure Docker for gcloud
-        run: |
-          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
-
       - name: Deploy to Cloud Run
         id: deploy
         run: |
-          # Use the latest tag from the published image
-          IMAGE="${{ env.REGISTRY }}/${{ github.repository }}:main"
-
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${IMAGE} \
+            --source . \
             --platform managed \
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
