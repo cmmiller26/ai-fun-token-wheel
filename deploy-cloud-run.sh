@@ -20,7 +20,7 @@ fi
 
 PROJECT_ID=$1
 REGION=${2:-us-central1}
-SERVICE_NAME="ai-token-wheel"
+SERVICE_NAME="ai-fun-token-wheel"
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}AI FUN Token Wheel - Cloud Run Deploy${NC}"

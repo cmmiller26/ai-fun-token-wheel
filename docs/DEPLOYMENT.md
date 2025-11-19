@@ -113,6 +113,7 @@ Deploy to Google Cloud Run for a public, scalable URL that students can access.
    ```bash
    gcloud services enable run.googleapis.com
    gcloud services enable cloudbuild.googleapis.com
+   gcloud services enable artifactregistry.googleapis.com
    ```
 
 ### Manual Deployment
@@ -120,7 +121,7 @@ Deploy to Google Cloud Run for a public, scalable URL that students can access.
 From the project root directory:
 
 ```bash
-gcloud run deploy ai-token-wheel \
+gcloud run deploy ai-fun-token-wheel \
   --source . \
   --platform managed \
   --region us-central1 \
@@ -134,7 +135,7 @@ gcloud run deploy ai-token-wheel \
 After deployment, you'll see a URL like:
 
 ```url
-https://ai-token-wheel-xxxxx-uc.a.run.app
+https://ai-fun-token-wheel-xxxxx-uc.a.run.app
 ```
 
 **This is your public URL!** Share it with students.
@@ -144,7 +145,7 @@ https://ai-token-wheel-xxxxx-uc.a.run.app
 If you've pushed images to GHCR via GitHub Actions:
 
 ```bash
-gcloud run deploy ai-token-wheel \
+gcloud run deploy ai-fun-token-wheel \
   --image ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main \
   --platform managed \
   --region us-central1 \
@@ -283,7 +284,7 @@ Cloud Run scales to zero when idle. First request after idle may take 10-30 seco
 For consistent performance, set minimum instances:
 
 ```bash
-gcloud run services update ai-token-wheel --min-instances=1
+gcloud run services update ai-fun-token-wheel --min-instances=1
 ```
 
 **Note:** Minimum instances may incur charges beyond the free tier.
@@ -301,10 +302,10 @@ docker compose logs -f app  # Follow logs in real-time
 
 ```bash
 # View recent logs
-gcloud run logs read ai-token-wheel --limit=50
+gcloud run logs read ai-fun-token-wheel --limit=50
 
 # Stream logs in real-time
-gcloud run logs tail ai-token-wheel
+gcloud run logs tail ai-fun-token-wheel
 ```
 
 ### Frontend not loading
@@ -337,7 +338,7 @@ docker system prune -a
 
 ```bash
 # Re-deploy with latest code
-gcloud run deploy ai-token-wheel --source .
+gcloud run deploy ai-fun-token-wheel --source .
 ```
 
 Or push to GitHub and let automated deployment handle it!

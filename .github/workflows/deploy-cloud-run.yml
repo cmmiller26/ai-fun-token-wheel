@@ -13,7 +13,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
   REGISTRY: ghcr.io
-  SERVICE_NAME: ai-token-wheel
+  SERVICE_NAME: ai-fun-token-wheel
 
 jobs:
   deploy:

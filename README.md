@@ -286,7 +286,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detailed discussion of de
 Deploy to Google Cloud Run:
 
 ```bash
-gcloud run deploy ai-token-wheel \
+gcloud run deploy ai-fun-token-wheel \
   --source . \
   --platform managed \
   --region us-central1 \
