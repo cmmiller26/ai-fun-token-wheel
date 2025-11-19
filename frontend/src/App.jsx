@@ -55,11 +55,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-          <h1 className="text-3xl font-bold text-gray-900">AI FUN Token Wheel</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Watch how language models generate text one token at a time
+      <header className="bg-slate-800 shadow-md">
+        <div className="max-w-7xl mx-auto px-4 py-5 sm:px-6 lg:px-8">
+          <h1 className="text-3xl font-bold text-white tracking-tight">AI FUN Token Wheel</h1>
+          <p className="mt-1 text-sm text-slate-300">
+            A visualization of probabilistic token selection in language models.
           </p>
         </div>
       </header>
@@ -80,54 +80,59 @@ function App() {
           </section>
         )}
 
-        {/* Wheel and controls section */}
+        {/* Main content section when generation is active */}
         {sessionId && currentWedges.length > 0 && (
           <>
-            <section className="card mb-8">
-              <TokenWheel
-                wedges={currentWedges}
-                selectedTokenInfo={selectedTokenInfo}
-                isSpinning={isSpinning}
-                targetAngle={spinResult?.target_angle}
-                onSpinComplete={handleSpinComplete}
-                selectionMode={selectionMode}
-                onWedgeClick={selectToken}
-                highlightedWedgeIndex={highlightedWedgeIndex}
-                showTokenPop={showTokenPop}
-                triggerPointerBounce={triggerPointerBounce}
-              />
-
-              <SpinControls
-                onSpin={spin}
-                isDisabled={isSpinning || !shouldContinue || isLoading}
-                isSpinning={isSpinning}
-                selectionMode={selectionMode}
-                onModeToggle={setSelectionMode}
-              />
-
-              {!shouldContinue && (
-                <div className="mt-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
-                  <strong className="font-bold">Complete! </strong>
-                  <span className="block sm:inline">The model has stopped generating.</span>
-                </div>
-              )}
-            </section>
-
-            {/* Generated text section */}
+            {/* Generated text section (now at the top) */}
             <section className="card mb-8">
               <GeneratedText context={currentContext} step={step} />
             </section>
 
-            {/* Probability table section */}
-            <section className="card mb-8">
-              <TokenProbabilityTable
-                wedges={currentWedges}
-                selectedToken={generatedTokens[generatedTokens.length - 1]}
-              />
-            </section>
+            {/* Main interactive area: Wheel and Probabilities */}
+            <div className="flex flex-col lg:flex-row gap-8">
+              {/* Left side: Wheel and controls */}
+              <section className="card lg:w-2/3">
+                <TokenWheel
+                  wedges={currentWedges}
+                  selectedTokenInfo={selectedTokenInfo}
+                  isSpinning={isSpinning}
+                  targetAngle={spinResult?.target_angle}
+                  onSpinComplete={handleSpinComplete}
+                  selectionMode={selectionMode}
+                  onWedgeClick={selectToken}
+                  highlightedWedgeIndex={highlightedWedgeIndex}
+                  showTokenPop={showTokenPop}
+                  triggerPointerBounce={triggerPointerBounce}
+                />
+
+                <SpinControls
+                  onSpin={spin}
+                  isDisabled={isSpinning || !shouldContinue || isLoading}
+                  isSpinning={isSpinning}
+                  selectionMode={selectionMode}
+                  onModeToggle={setSelectionMode}
+                />
+
+                {!shouldContinue && (
+                  <div className="mt-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+                    <strong className="font-bold">Complete! </strong>
+                    <span className="block sm:inline">The model has stopped generating.</span>
+                  </div>
+                )}
+              </section>
+
+              {/* Right side: Probability legend */}
+              <section className="card lg:w-1/3">
+                <h2 className="text-xl font-semibold mb-4">Token Probabilities</h2>
+                <TokenProbabilityTable
+                  wedges={currentWedges}
+                  selectedToken={generatedTokens[generatedTokens.length - 1]}
+                />
+              </section>
+            </div>
 
             {/* Reset button */}
-            <section className="flex justify-center">
+            <section className="flex justify-center mt-8">
               <ResetButton onClick={handleReset} />
             </section>
           </>

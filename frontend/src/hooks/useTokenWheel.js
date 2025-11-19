@@ -221,9 +221,10 @@ export const useTokenWheel = () => {
       const response = await selectToken(sessionId, wedge.token_id);
 
       // Store selected token info and show pop animation
+      // Use the probability from the response (important for "other" tokens which get sampled)
       setSelectedTokenInfo({
         token: response.selected_token,
-        probability: wedge.probability,
+        probability: response.selected_token_probability,
         wedgeIndex: selectedWedgeIndex
       });
       setShowTokenPop(true);

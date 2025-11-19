@@ -25,6 +25,13 @@ from generator import GPT2TokenWheelGenerator
 # Pydantic Models for Request/Response Validation
 # ============================================================================
 
+class SubTokenInfo(BaseModel):
+    """Information about a sub-token in the 'other' category."""
+    token: str = Field(..., description="The token string")
+    token_id: int = Field(..., description="Token ID")
+    probability: float = Field(..., ge=0.0, le=1.0, description="Token probability")
+
+
 class WedgeInfo(BaseModel):
     """Information about a single token in the probability distribution."""
     token: str = Field(..., description="The token string (or '<OTHER>')")
@@ -32,6 +39,8 @@ class WedgeInfo(BaseModel):
     probability: float = Field(..., ge=0.0, le=1.0, description="Token probability")
     is_special: bool = Field(..., description="Whether token is a special token")
     is_other: bool = Field(..., description="Whether this is the '<OTHER>' category")
+    other_top_tokens: Optional[List[SubTokenInfo]] = Field(None, description="Top tokens from the 'other' category")
+    remaining_count: Optional[int] = Field(None, description="Total count of remaining tokens")
 
 
 
@@ -74,6 +83,7 @@ class SelectRequest(BaseModel):
 class SelectResponse(BaseModel):
     """Response body for POST /api/select endpoint."""
     selected_token: str = Field(..., description="The token that was selected")
+    selected_token_probability: float = Field(..., description="The probability of the selected token")
     new_context: str = Field(..., description="Updated context with selected token appended")
     should_continue: bool = Field(..., description="Whether generation should continue")
     next_tokens: Optional[List[WedgeInfo]] = Field(None, description="Next tokens (if continuing)")
@@ -374,12 +384,36 @@ async def select_token(request: SelectRequest):
         generator = app.state.generator
         selected_token_id = request.selected_token_id
 
-        # If the frontend provides a specific token ID (from a spin, or a click on a specific wedge),
-        # we can just decode it. This avoids an error if the token was sampled from the "other" group.
+        # Get the probability of the selected token
         if selected_token_id != -1:
+            # For a specific token, find it in the current distribution
             selected_token = generator.tokenizer.decode([selected_token_id])
-            # Create a minimal token_info dict for should_end_generation
-            token_info = {'token_id': selected_token_id, 'token': selected_token}
+
+            # Look for the token in the distribution to get its probability
+            token_probability = None
+            for token in session.current_distribution['tokens']:
+                if token['token_id'] == selected_token_id:
+                    token_probability = token['probability']
+                    break
+
+            # If not found in main tokens, it must be from the "other" category
+            # In this case, we need to get its probability from the full distribution
+            if token_probability is None:
+                import torch
+                context = session.current_distribution['context']
+                input_ids = generator.tokenizer.encode(context, return_tensors='pt').to(generator.device)
+                with torch.no_grad():
+                    outputs = generator.model(input_ids)
+                    logits = outputs.logits[0, -1, :]
+                    probabilities = torch.softmax(logits, dim=0)
+                    token_probability = float(probabilities[selected_token_id].cpu().numpy())
+
+            # Create token_info dict
+            token_info = {
+                'token_id': selected_token_id,
+                'token': selected_token,
+                'probability': token_probability
+            }
         else:
             # If token_id is -1, user clicked the generic "Other" wedge manually.
             # Here, we must sample a token from that group. select_token_by_id handles this.
@@ -424,6 +458,7 @@ async def select_token(request: SelectRequest):
 
             return SelectResponse(
                 selected_token=selected_token,
+                selected_token_probability=token_info['probability'],
                 new_context=new_context,
                 should_continue=True,
                 next_tokens=next_token_models,
@@ -433,6 +468,7 @@ async def select_token(request: SelectRequest):
             # Generation complete
             return SelectResponse(
                 selected_token=selected_token,
+                selected_token_probability=token_info['probability'],
                 new_context=new_context,
                 should_continue=False,
                 next_tokens=None,

@@ -205,7 +205,7 @@ class GPT2TokenWheelGenerator:
 
         return wedges
 
-    def get_tokens_with_probabilities(self, distribution: Dict) -> List[Dict]:
+    def get_tokens_with_probabilities(self, distribution: Dict, top_other_count: int = 5) -> List[Dict]:
         """
         Convert distribution to a simple list of tokens with probabilities.
 
@@ -213,9 +213,11 @@ class GPT2TokenWheelGenerator:
 
         Args:
             distribution: Token distribution from get_next_token_distribution()
+            top_other_count: Number of top tokens to include from "other" category (default 5)
 
         Returns:
-            List of dicts with token, token_id, probability, is_special, is_other
+            List of dicts with token, token_id, probability, is_special, is_other, and
+            optionally other_top_tokens for the "other" category
         """
         tokens_list = []
 
@@ -231,7 +233,7 @@ class GPT2TokenWheelGenerator:
 
         # Add "other" category if there's remaining probability
         if distribution['remaining_probability'] > 0:
-            # Calculate the count of remaining tokens
+            # Calculate the count of remaining tokens and get top tokens
             context = distribution['context']
             input_ids = self.tokenizer.encode(context, return_tensors='pt').to(self.device)
 
@@ -244,16 +246,39 @@ class GPT2TokenWheelGenerator:
             # Get token IDs that are in the main distribution
             included_token_ids = set(t['token_id'] for t in distribution['tokens'])
 
-            # Count tokens with probability > 0 that are not in the main distribution
-            remaining_count = sum(1 for token_id in range(len(probs_np))
-                                if token_id not in included_token_ids and probs_np[token_id] > 0)
+            # Get all other tokens (not in main distribution) with their probabilities
+            other_tokens = []
+            for token_id in range(len(probs_np)):
+                if token_id not in included_token_ids and probs_np[token_id] > 0:
+                    other_tokens.append({
+                        'token_id': token_id,
+                        'probability': float(probs_np[token_id])
+                    })
+
+            # Sort by probability descending
+            other_tokens.sort(key=lambda x: x['probability'], reverse=True)
+
+            # Get top N tokens from the "other" category
+            top_other_tokens = []
+            for i in range(min(top_other_count, len(other_tokens))):
+                token_id = other_tokens[i]['token_id']
+                token_str = self.tokenizer.decode([token_id])
+                top_other_tokens.append({
+                    'token': token_str,
+                    'token_id': token_id,
+                    'probability': other_tokens[i]['probability']
+                })
+
+            remaining_count = len(other_tokens)
 
             tokens_list.append({
-                'token': f'Less Likely ({remaining_count:,} tokens)',
+                'token': 'Remaining Tokens',
                 'token_id': -1,
                 'probability': distribution['remaining_probability'],
                 'is_special': False,
-                'is_other': True
+                'is_other': True,
+                'other_top_tokens': top_other_tokens,
+                'remaining_count': remaining_count
             })
 
         return tokens_list

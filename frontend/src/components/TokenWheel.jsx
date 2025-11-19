@@ -33,6 +33,7 @@ const TokenWheel = ({ wedges, selectedTokenInfo, isSpinning, onSpinComplete, tar
       console.log('=== WHEEL SPIN DEBUG ===');
       console.log('Backend targetAngle:', targetAngle);
       console.log('Current rotation (raw):', rotation);
+      console.log('Wedges:', wedges.map((w, i) => `[${i}] ${w.token}: ${w.start_angle.toFixed(1)}°-${w.end_angle.toFixed(1)}°`));
 
       // The backend provides the targetAngle where the selection is located within the wedge.
       // The pointer is at the top (0° position). To make the wedge appear under the pointer,
@@ -40,14 +41,18 @@ const TokenWheel = ({ wedges, selectedTokenInfo, isSpinning, onSpinComplete, tar
       // Example: if target is at 90°, rotating the wheel 90° clockwise brings that position to the top.
 
       const minSpins = 10;
-      const extraSpins = minSpins + Math.random() * 2;
+      const randomExtraSpins = Math.floor(Math.random() * 3); // 0, 1, or 2 complete extra spins
 
       // Current normalized position of the wheel
       const currentRotation = rotation % 360;
       console.log('Current rotation (normalized):', currentRotation);
 
-      // Target final rotation (where we want to end up) - simply the targetAngle
-      const targetRotation = targetAngle;
+      // Target final rotation: rotate the wheel so targetAngle appears under the pointer
+      // The pointer is at the top (0°). When we rotate the wheel by R degrees clockwise,
+      // a position at angle θ on the wheel appears at position (θ + R) % 360 in the viewer frame.
+      // We want θ to appear at 0°, so: (θ + R) % 360 = 0, which gives R = (360 - θ) % 360
+      const targetRotation = (360 - targetAngle) % 360;
+      console.log('Target angle on wheel:', targetAngle);
       console.log('Target final rotation:', targetRotation);
 
       // Calculate shortest path to target, then add full spins
@@ -60,11 +65,15 @@ const TokenWheel = ({ wedges, selectedTokenInfo, isSpinning, onSpinComplete, tar
       }
       console.log('Forward delta:', rotationDelta);
 
-      // Add the minimum number of full spins
-      const totalRotation = (360 * extraSpins) + rotationDelta;
-      console.log('Extra spins:', extraSpins, 'Total rotation to add:', totalRotation);
+      // Add only COMPLETE 360° spins to maintain exact final position
+      // The final position will be exactly targetRotation % 360
+      const totalSpins = minSpins + randomExtraSpins;
+      const totalRotation = (360 * totalSpins) + rotationDelta;
+      console.log('Total spins:', totalSpins);
+      console.log('Total rotation to add:', totalRotation);
       console.log('Final rotation will be:', rotation + totalRotation);
       console.log('Final rotation (normalized):', (rotation + totalRotation) % 360);
+      console.log('Expected final position:', targetRotation);
       console.log('======================');
 
       setRotation(prevRotation => prevRotation + totalRotation);
@@ -252,19 +261,6 @@ const TokenWheel = ({ wedges, selectedTokenInfo, isSpinning, onSpinComplete, tar
                 }}
               >
                 {formatTokenText(wedge.token)}
-              </text>
-              <text
-                x={calculateTextPosition(centerX, centerY, textRadius * 0.8, wedge.start_angle, wedge.end_angle).x}
-                y={calculateTextPosition(centerX, centerY, textRadius * 0.8, wedge.start_angle, wedge.end_angle).y + 15}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                style={{
-                  fontSize: '10px',
-                  fill: '#333',
-                  pointerEvents: 'none',
-                }}
-              >
-                {(wedge.probability * 100).toFixed(1)}%
               </text>
             </g>
           );
