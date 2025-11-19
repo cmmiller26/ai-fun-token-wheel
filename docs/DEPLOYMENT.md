@@ -140,6 +140,20 @@ https://ai-fun-token-wheel-xxxxx-uc.a.run.app
 
 **This is your public URL!** Share it with students.
 
+### Container Startup and the PORT Variable
+
+Google Cloud Run dictates the port your application must listen on by injecting a `PORT` environment variable into the container. Our application must bind to this port to receive traffic.
+
+To handle this robustly, we use a startup script located at `backend/run.sh`. The `Dockerfile` is configured to copy this script into the final image and set it as the startup command (`CMD`).
+
+This script reads the `$PORT` variable (defaulting to `8000` for local testing) and starts the `uvicorn` server on the correct port. This ensures our container is compliant with Cloud Run's requirements and remains portable for local development.
+
+```sh
+# backend/run.sh
+#!/bin/sh
+exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+
 ### Deployment from GitHub Container Registry
 
 If you've pushed images to GHCR via GitHub Actions:
@@ -178,25 +192,16 @@ The project includes GitHub Actions that automatically deploy to Cloud Run on ev
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/iam.serviceAccountUser"
 
-   # Cloud Build (build from source)
+   # Cloud Build Editor (build from source)
+   # The 'editor' role is required for deploying from source.
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/cloudbuild.builds.builder"
+     --role="roles/cloudbuild.builds.editor"
 
-   # Artifact Registry (create repository and store built images)
+   # Artifact Registry Writer (store built images)
    gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
      --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/artifactregistry.admin"
-
-   # Storage admin (Cloud Build uses Cloud Storage)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/storage.admin"
-
-   # Service Usage Consumer (allow service account to use enabled APIs)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/serviceusage.serviceUsageConsumer"
+     --role="roles/artifactregistry.writer"
    ```
 
 2. **Create and download a service account key:**

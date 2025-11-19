@@ -1,4 +1,4 @@
-# GEMINI.md - Project Context for AI Assistants
+# AGENTS.md - Project Context for AI Assistants
 
 ## Project Overview
 

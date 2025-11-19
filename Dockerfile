@@ -55,21 +55,14 @@ COPY --from=backend-builder /opt/venv /opt/venv
 # Copy backend application code
 COPY backend/ .
 
-# Copy built frontend static files to a subdirectory
-COPY --from=frontend-builder /frontend/dist ./static
-
 # Activate the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Set default port (Cloud Run will override this with PORT env var)
-ENV PORT=8000
+# Copy built frontend static files to a subdirectory
+COPY --from=frontend-builder /frontend/dist ./static
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+# Make the run script executable
+RUN chmod +x ./run.sh
 
-# Expose the port
-EXPOSE $PORT
-
-# Run the FastAPI server using the PORT environment variable
-CMD uvicorn main:app --host 0.0.0.0 --port $PORT
+# Run the FastAPI server using the startup script
+CMD ["./run.sh"]
