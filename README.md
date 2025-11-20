@@ -4,7 +4,7 @@ An educational visualization tool that demonstrates how Large Language Models ge
 
 ## Overview
 
-**AI FUN Token Wheel** is designed for the AI Fundamentals course (CSI:1234) at the University of Iowa. It provides students with a hands-on, visual understanding of how LLMs work under the hood - specifically, how they probabilistically sample the next token from a distribution rather than deterministically choosing it.
+**AI FUN Token Wheel** is designed for the AI Fundamentals course (CSI:1040) at the University of Iowa. It provides students with a hands-on, visual understanding of how LLMs work under the hood - specifically, how they probabilistically sample the next token from a distribution rather than deterministically choosing it.
 
 ### Key Educational Concepts
 
@@ -338,7 +338,7 @@ docker compose logs app
 
 ## Contributing
 
-This is an educational project for CSI:1234 at the University of Iowa. Contributions are welcome! Please:
+This is an educational project for CSI:1040 at the University of Iowa. Contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
@@ -348,7 +348,7 @@ This is an educational project for CSI:1234 at the University of Iowa. Contribut
 
 ## Academic Context
 
-**Course**: AI Fundamentals (CSI:1234)
+**Course**: AI Fundamentals (CSI:1040)
 **Institution**: University of Iowa
 **Instructors**: Dr. Tyler Bell (Engineering) and Dr. Ali Hasan (Philosophy)
 **Target Audience**: Undergraduate students from all majors (no technical prerequisites)

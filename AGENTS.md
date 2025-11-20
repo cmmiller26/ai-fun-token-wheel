@@ -4,7 +4,7 @@
 
 **Project Name**: AI FUN Token Wheel - Visual Language Model Token Generation
 
-**Purpose**: An educational demonstration tool for the AI Fundamentals course (CSI:1234) at the University of Iowa. This project visualizes how Large Language Models generate text by representing the probabilistic token selection process as a spinning probability wheel.
+**Purpose**: An educational demonstration tool for the AI Fundamentals course (CSI:1040) at the University of Iowa. This project visualizes how Large Language Models generate text by representing the probabilistic token selection process as a spinning probability wheel.
 
 **Academic Context**:
 
