@@ -11,6 +11,7 @@ probability distributions, visualized as a spinning wheel.
 from typing import Dict, List, Optional
 import torch
 import numpy as np
+import time
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
 
@@ -47,10 +48,29 @@ class GPT2TokenWheelGenerator:
      
         self.device = torch.device(device)
 
-        # Load model and tokenizer
+        # Load model and tokenizer with retry logic for rate limiting
         print(f"Loading {model_name} model on {self.device}...")
-        self.tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-        self.model = GPT2LMHeadModel.from_pretrained(model_name)
+
+        max_retries = 5
+        retry_delay = 2  # Start with 2 seconds
+
+        for attempt in range(max_retries):
+            try:
+                self.tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+                self.model = GPT2LMHeadModel.from_pretrained(model_name)
+                break  # Success, exit retry loop
+            except Exception as e:
+                if "429" in str(e) or "Too Many Requests" in str(e):
+                    if attempt < max_retries - 1:
+                        print(f"Rate limited by HuggingFace, retrying in {retry_delay}s...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        print("Max retries reached, attempting to use local cache...")
+                        raise
+                else:
+                    # Not a rate limit error, raise immediately
+                    raise
 
         # Move model to device and set to evaluation mode
         self.model.to(self.device)

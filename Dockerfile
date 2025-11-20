@@ -43,9 +43,13 @@ RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://dow
 
 # Download GPT-2 model and tokenizer during build to avoid runtime downloads
 # This prevents HuggingFace rate limiting issues on Cloud Run
-RUN python -c "from transformers import GPT2LMHeadModel, GPT2Tokenizer; \
-    GPT2Tokenizer.from_pretrained('gpt2'); \
-    GPT2LMHeadModel.from_pretrained('gpt2')"
+# We need to ensure all tokenizer files are downloaded, not just the model
+RUN python -c "from transformers import GPT2LMHeadModel, GPT2TokenizerFast; \
+    print('Downloading tokenizer...'); \
+    tokenizer = GPT2TokenizerFast.from_pretrained('gpt2'); \
+    print('Downloading model...'); \
+    model = GPT2LMHeadModel.from_pretrained('gpt2'); \
+    print('Download complete!')"
 
 
 # ----------------------------------------------------------------------------
@@ -77,7 +81,7 @@ RUN chmod +x /app/run.sh && \
     chown -R appuser:appuser /home/appuser/.cache
 
 # Set HuggingFace cache directory to the user-owned location
-ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface
+# Using HF_HOME (TRANSFORMERS_CACHE is deprecated in transformers v5)
 ENV HF_HOME=/home/appuser/.cache/huggingface
 
 # Expose the port the app will run on. Cloud Run provides this via the PORT env var.
