@@ -1,10 +1,10 @@
 # Deployment Guide
 
-This document outlines how to run the AI FUN Token Wheel application locally with Docker and deploy it to production using Google Cloud Run.
+This document outlines how to run the AI FUN Token Wheel application locally with Docker and deploy it using Docker containers.
 
 ## Architecture
 
-The application uses a **unifsied Docker architecture** where:
+The application uses a **unified Docker architecture** where:
 
 - A single Docker image contains both frontend (React) and backend (FastAPI)
 - The FastAPI backend serves the React frontend as static files
@@ -84,176 +84,25 @@ When running this way:
 - Backend runs at <http://localhost:8000>
 - Vite proxies `/api` requests to the backend
 
-## Production Deployment with Google Cloud Run
-
-Deploy to Google Cloud Run for a public, scalable URL that students can access.
-
-### Prerequisites
-
-- Google Cloud account ([Sign up here](https://cloud.google.com/))
-- gcloud CLI installed ([Installation guide](https://cloud.google.com/sdk/docs/install))
-- A Google Cloud project created
-
-### Setup
-
-1. **Authenticate with Google Cloud:**
-
-   ```bash
-   gcloud auth login
-   ```
-
-2. **Set your project:**
-
-   ```bash
-   gcloud config set project YOUR_PROJECT_ID
-   ```
-
-3. **Enable required APIs:**
-
-   ```bash
-   gcloud services enable run.googleapis.com
-   gcloud services enable cloudbuild.googleapis.com
-   gcloud services enable artifactregistry.googleapis.com
-   ```
-
-### Manual Deployment
-
-From the project root directory:
-
-```bash
-gcloud run deploy ai-fun-token-wheel \
-  --source . \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 2Gi \
-  --cpu 1 \
-  --port 8000 \
-  --timeout 300
-```
-
-After deployment, you'll see a URL like:
-
-```url
-https://ai-fun-token-wheel-xxxxx-uc.a.run.app
-```
-
-**This is your public URL!** Share it with students.
-
-### Container Startup and the PORT Variable
-
-Google Cloud Run dictates the port your application must listen on by injecting a `PORT` environment variable into the container. Our application must bind to this port to receive traffic.
-
-To handle this robustly, we use a startup script located at `backend/run.sh`. The `Dockerfile` is configured to copy this script into the final image and set it as the startup command (`CMD`).
-
-This script reads the `$PORT` variable (defaulting to `8000` for local testing) and starts the `uvicorn` server on the correct port. This ensures our container is compliant with Cloud Run's requirements and remains portable for local development.
-
-```sh
-# backend/run.sh
-#!/bin/sh
-exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
-```
-
-### Deployment from GitHub Container Registry
-
-If you've pushed images to GHCR via GitHub Actions:
-
-```bash
-gcloud run deploy ai-fun-token-wheel \
-  --image ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 2Gi \
-  --cpu 1 \
-  --port 8000 \
-  --timeout 300
-```
-
-### Automated Deployment from GitHub
-
-The project includes GitHub Actions that automatically deploy to Cloud Run on every push to main.
-
-**Setup:**
-
-1. **Create a Google Cloud service account:**
-
-   ```bash
-   gcloud iam service-accounts create github-deploy \
-     --display-name="GitHub Deploy Service Account"
-
-   # Cloud Run admin (create/update services)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/run.admin"
-
-   # Service account user (deploy as service account)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/iam.serviceAccountUser"
-
-   # Cloud Build Editor (build from source)
-   # The 'editor' role is required for deploying from source.
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/cloudbuild.builds.editor"
-
-   # Artifact Registry Writer (store built images)
-   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-     --member="serviceAccount:github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/artifactregistry.writer"
-   ```
-
-2. **Create and download a service account key:**
-
-   ```bash
-   gcloud iam service-accounts keys create key.json \
-     --iam-account=github-deploy@YOUR_PROJECT_ID.iam.gserviceaccount.com
-   ```
-
-3. **Add GitHub Repository Secrets:**
-
-   Go to: Repository → Settings → Secrets and variables → Actions → New repository secret
-
-   Add these secrets:
-   - **Name:** `GCP_PROJECT_ID` | **Value:** Your Google Cloud project ID
-   - **Name:** `GCP_SA_KEY` | **Value:** Contents of `key.json` (entire JSON)
-   - **Name:** `GCP_REGION` | **Value:** `us-central1` (or preferred region)
-
-4. **Push to main** - deployment happens automatically!
-
-The workflow:
-
-1. Builds unified Docker image (frontend + backend)
-2. Pushes to GitHub Container Registry
-3. Deploys to Cloud Run
-
-### Cost Information
-
-**Google Cloud Run Free Tier:**
-
-- 2 million requests per month
-- 360,000 GB-seconds of memory
-- 180,000 vCPU-seconds
-- 1 GB network egress per month
-
-For a classroom tool with moderate usage (100-500 students), this typically **stays within the free tier**.
-
-**Estimated monthly cost:**
-
-- Light usage (free tier): $0
-- Moderate usage: $5-10/month
-
 ## GitHub Container Registry
 
-Docker images are automatically built and published to GHCR on every push to main.
+Docker images are automatically built and published to GitHub Container Registry (GHCR) on every push to main.
+
+### Automated Publishing
+
+The project includes a GitHub Actions workflow that automatically:
+
+1. Builds the unified Docker image (frontend + backend)
+2. Pushes it to GitHub Container Registry with tags for both the commit SHA and `main`
+
+This happens on every push to the main branch.
 
 ### Using Pre-built Images
 
 Pull and run without building locally:
 
 ```bash
-# Pull the image
+# Pull the latest image
 docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
 
 # Run locally
@@ -262,15 +111,62 @@ docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
 
 Access at <http://localhost:8000>
 
+### Using GHCR in docker compose
+
+Modify `docker-compose.yml` to use pre-built images:
+
+```yaml
+services:
+  app:
+    image: ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
+    # Remove the 'build' section
+```
+
+This is faster than building locally.
+
+## Production Deployment
+
+### Deploy to Any Docker Host
+
+Since the application is containerized, you can deploy it to any platform that supports Docker:
+
+**Docker-based platforms:**
+
+- Digital Ocean App Platform
+- Railway
+- Render
+- Fly.io
+- AWS ECS/Fargate
+- Azure Container Instances
+- Your own server with Docker
+
+**General deployment steps:**
+
+1. Pull the image from GHCR:
+
+   ```bash
+   docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
+   ```
+
+2. Run the container:
+
+   ```bash
+   docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
+   ```
+
+3. Ensure the container has at least 2GB of RAM available
+
+**Note:** First run will download GPT-2 model (~500MB), which may take a moment. Subsequent runs use the cached model.
+
 ## Troubleshooting
 
 ### Models not loading
 
-First run downloads GPT-2 (~500MB). Cloud Run may timeout on first startup. If this happens, trigger another request - the model will be cached.
+First run downloads GPT-2 (~500MB). This may take time on the initial startup. The model will be cached for subsequent runs.
 
 ### Port conflicts (Local)
 
-If port 8000 is in use, modify `docker compose.yml`:
+If port 8000 is in use, modify `docker-compose.yml`:
 
 ```yaml
 ports:
@@ -282,18 +178,6 @@ ports:
 PyTorch and GPT-2 require ~2GB RAM. Ensure Docker Desktop has sufficient memory:
 Docker Desktop → Settings → Resources → Memory
 
-### Cloud Run cold starts
-
-Cloud Run scales to zero when idle. First request after idle may take 10-30 seconds. Subsequent requests are fast.
-
-For consistent performance, set minimum instances:
-
-```bash
-gcloud run services update ai-fun-token-wheel --min-instances=1
-```
-
-**Note:** Minimum instances may incur charges beyond the free tier.
-
 ### Viewing logs
 
 **Local Docker logs:**
@@ -303,14 +187,11 @@ docker compose logs
 docker compose logs -f app  # Follow logs in real-time
 ```
 
-**Cloud Run logs:**
+**Container logs (when running with docker run):**
 
 ```bash
-# View recent logs
-gcloud run logs read ai-fun-token-wheel --limit=50
-
-# Stream logs in real-time
-gcloud run logs tail ai-fun-token-wheel
+docker logs <container_id>
+docker logs -f <container_id>  # Follow logs in real-time
 ```
 
 ### Frontend not loading
@@ -339,15 +220,6 @@ docker compose down -v
 docker system prune -a
 ```
 
-### Update Cloud Run service
-
-```bash
-# Re-deploy with latest code
-gcloud run deploy ai-fun-token-wheel --source .
-```
-
-Or push to GitHub and let automated deployment handle it!
-
 ### Custom Docker build
 
 Build manually:
@@ -356,19 +228,6 @@ Build manually:
 docker build -t ai-fun-token-wheel .
 docker run -p 8000:8000 ai-fun-token-wheel
 ```
-
-### Using GHCR in docker compose
-
-Modify `docker compose.yml` to use pre-built images:
-
-```yaml
-services:
-  app:
-    image: ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
-    # Remove the 'build' section
-```
-
-This is faster than building locally.
 
 ## GitHub Codespaces
 

@@ -52,17 +52,25 @@ WORKDIR /app
 # Copy the virtual environment from backend builder
 COPY --from=backend-builder /opt/venv /opt/venv
 
-# Copy backend application code
-COPY backend/ .
-
 # Activate the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy backend application code
+COPY backend/ /app/
 
 # Copy built frontend static files to a subdirectory
 COPY --from=frontend-builder /frontend/dist ./static
 
-# Make the run script executable
-RUN chmod +x ./run.sh
+# Create a non-root user for better security
+RUN chmod +x /app/run.sh && \
+    useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
 
-# Run the FastAPI server using the startup script
-CMD ["./run.sh"]
+# Expose the port the app will run on. Cloud Run provides this via the PORT env var.
+# Defaulting to 8080 for local testing.
+ENV PORT=8080
+# Switch to non-root user
+USER appuser
+
+# Run the application using the entrypoint script
+ENTRYPOINT ["/app/run.sh"]

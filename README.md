@@ -215,7 +215,6 @@ For detailed API documentation, visit <http://localhost:8000/docs> when the back
 
 - **Docker & Docker Compose**: Containerization
 - **GitHub Container Registry**: Container image hosting
-- **Google Cloud Run**: Production hosting platform
 - **GitHub Actions**: CI/CD pipeline
 
 ## Development
@@ -281,31 +280,28 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detailed discussion of de
 
 ## Deployment
 
-### Production Deployment
+### Docker Image Publishing
 
-Deploy to Google Cloud Run:
+The project includes GitHub Actions that automatically build and publish Docker images to GitHub Container Registry on every push to the `main` branch.
+
+**Using pre-built images:**
 
 ```bash
-gcloud run deploy ai-fun-token-wheel \
-  --source . \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 2Gi \
-  --cpu 1 \
-  --port 8000 \
-  --timeout 300
+# Pull the latest image
+docker pull ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
+
+# Run locally
+docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
 ```
 
-### Automated Deployment
+### Production Deployment
 
-The project includes GitHub Actions for automatic deployment. Push to `main` branch to trigger:
+The containerized application can be deployed to any Docker-compatible platform:
 
-1. Build unified Docker image
-2. Push to GitHub Container Registry
-3. Deploy to Cloud Run
+- **Docker-based platforms**: Railway, Render, Fly.io, Digital Ocean, AWS ECS, Azure Container Instances
+- **Your own server**: Any machine running Docker
 
-For complete deployment instructions, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+For complete deployment instructions and platform-specific guidance, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Troubleshooting
 
