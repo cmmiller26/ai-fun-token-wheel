@@ -2,10 +2,50 @@
 
 ## System Overview
 
-AI FUN Token Wheel is a client-server application that visualizes LLM token generation through a probability wheel interface. The architecture consists of two main components:
+AI FUN Token Wheel is a client-server application that visualizes LLM token generation through a probability wheel interface. The application currently supports two language models: GPT-2 (124M) as the default, and Llama 3.2 1B as a modern alternative. Both models run locally via Hugging Face Transformers with no API costs.
 
-1. **Backend (Python/FastAPI)**: Handles GPT-2 model inference, probability calculations, and token sampling
+The architecture consists of two main components:
+
+1. **Backend (Python/FastAPI)**: Handles model inference for the selected model, probability calculations, and token sampling
 2. **Frontend (React/Vite)**: Renders spinning wheel visualization and manages user interaction
+
+The probability extraction and token selection mechanism works identically for both models - and any future autoregressive LLM.
+
+## Supported Models
+
+The application supports multiple language models through Hugging Face Transformers. All models run locally with no API costs. Both supported models are pre-loaded in the Docker image for instant availability.
+
+### Current Models
+
+| Model            | Parameters | RAM Required | Download Size | Pre-loaded | Default | Notes                               |
+| ---------------- | ---------- | ------------ | ------------- | ---------- | ------- | ----------------------------------- |
+| **GPT-2**        | 124M       | 2 GB         | ~500 MB       | ✓ Yes      | ✓ Yes   | Most accessible, proven reliable    |
+| **Llama 3.2 1B** | 1.2B       | 6 GB         | ~5 GB         | ✓ Yes      | No      | Modern architecture, better quality |
+
+### Model Selection
+
+- **Default**: GPT-2 (124M) - Chosen for accessibility and reliability
+- **Alternative**: Llama 3.2 1B - For users with sufficient RAM (6GB+) who want to explore a more modern model
+- **Comparison**: Students can switch between models to see how different LLMs produce different probability distributions for the same context
+
+### Resource Requirements
+
+**Minimum system requirements:**
+
+- To run GPT-2: 4GB RAM total (2GB for model + 2GB for system)
+- To run Llama 3.2 1B: 8GB RAM total (6GB for model + 2GB for system)
+- Docker image size: ~7-8 GB (includes both models pre-loaded)
+- Disk space: 10GB free space recommended
+
+### Extensibility
+
+The architecture supports ANY autoregressive language model available through Hugging Face Transformers. Future models can be added by:
+
+1. Adding model configuration to `SUPPORTED_MODELS` dict
+2. (Optional) Pre-loading in Dockerfile for instant availability
+3. No changes to core token generation logic required
+
+Potential future additions: GPT-2 Medium/Large, Llama 3.2 3B, GPT-Neo, Mistral variants, or other Hugging Face models as they become available.
 
 ## High-Level Data Flow
 
@@ -39,32 +79,38 @@ Backend Processes Selection → Display Selected Token → Update Context → Re
 - **Python 3.10+** (3.11 for better performance)
 - **FastAPI**: Async web framework for API endpoints
 - **PyTorch**: Deep learning framework (required by Transformers)
-- **Hugging Face Transformers**: Pre-trained GPT-2 model
+- **Hugging Face Transformers**: Unified interface for all supported models
+  - Currently supports: GPT-2 (124M, default) and Llama 3.2 1B (1.2B)
+  - Model-agnostic architecture: Easy to add future models
 - **Uvicorn**: ASGI server
 
 ### Core Components
 
-#### 1. GPT2TokenWheelGenerator Class
+#### 1. TokenWheelGenerator Class
 
 **File**: `backend/generator.py`
 
-The main class handling all model inference, probability calculations, and token sampling.
+The main class handling all model inference, probability calculations, and token sampling. Model-agnostic design works with any Hugging Face causal language model.
 
 **Key Methods**:
 
 ```python
-__init__(model_name='gpt2', device='cpu')
-# Loads GPT-2 model and tokenizer
-# Sets device (cuda/cpu)
-# Initializes model in eval mode
-# Stores generation session state
+__init__(model_name='gpt2', device='cpu', hf_token=None)
+# Loads specified model and tokenizer from Hugging Face
+# Args:
+#   model_name: Key from SUPPORTED_MODELS ('gpt2' or 'llama-3.2-1b')
+#   device: 'cpu' or 'cuda' (CPU-only for most educational deployments)
+#   hf_token: Optional Hugging Face token for gated models (Llama 3.2)
+# Uses AutoModelForCausalLM and AutoTokenizer for model-agnostic loading
+# Handles model-specific initialization (e.g., pad tokens for Llama)
+# Both supported models are pre-loaded in Docker, so loading is instant
 
 get_next_token_distribution(context, min_threshold=0.01, secondary_threshold=0.005)
 # Input: Text context, primary threshold (default 1%), secondary threshold (default 0.5%)
 # Output: Dynamic set of tokens with probabilities
 # Process:
 #   1. Tokenize context
-#   2. Forward pass through model
+#   2. Forward pass through selected model (GPT-2 or Llama 3.2 1B)
 #   3. Apply softmax to logits
 #   4. Select tokens ≥ min_threshold (1%)
 #   5. If remaining probability > 20%, also include tokens ≥ secondary_threshold
@@ -106,24 +152,64 @@ should_end_generation(token_info, context, max_length=50)
 # Process: Check if EOS token, max length, or other stopping conditions
 ```
 
+**Model-Agnostic Design**: This class works identically regardless of which model is loaded. The probability extraction logic (`get_next_token_distribution`), token selection (`select_token_by_id`), and all other methods operate the same way for GPT-2, Llama 3.2 1B, or any future model. The educational visualization (probability wheel with wedge sizes) remains accurate and consistent across all models.
+
+**Why This Works**: All autoregressive language models follow the same fundamental pattern:
+
+1. Take context tokens as input
+2. Generate logits (raw scores) for all possible next tokens
+3. Apply softmax to convert to probabilities
+4. Sample from this distribution
+
+Our implementation uses this universal pattern, making it work with any Hugging Face causal LM.
+
 #### 2. FastAPI Server
 
 **File**: `backend/main.py`
 
-REST API wrapping the GPT2TokenWheelGenerator.
+REST API wrapping the TokenWheelGenerator.
 
 **Endpoints**:
 
 ```http
+GET /api/models
+    Response: {
+        "models": [
+            {
+                "key": "gpt2",
+                "name": "GPT-2 (124M)",
+                "params": "124M",
+                "size_mb": 500,
+                "ram_required_gb": 2,
+                "preloaded": true,
+                "is_default": true,
+                "requires_auth": false
+            },
+            {
+                "key": "llama-3.2-1b",
+                "name": "Llama 3.2 1B",
+                "params": "1.2B",
+                "size_mb": 5000,
+                "ram_required_gb": 6,
+                "preloaded": true,
+                "is_default": false,
+                "requires_auth": true
+            }
+        ],
+        "default_model": "gpt2"
+    }
+
 POST /api/start
     Body: {
         "prompt": "The cat sat on the",
-        "model": "gpt2",                    // optional, default gpt2
+        "model": "gpt2",                    // optional, default "gpt2"
+                                            // options: "gpt2", "llama-3.2-1b"
         "min_threshold": 0.01,              // optional, default 0.01 (1%)
         "secondary_threshold": 0.005        // optional, default 0.005 (0.5%)
     }
     Response: {
         "session_id": "abc123",
+        "model": "gpt2",                    // Which model is being used
         "context": "The cat sat on the",
         "tokens": [                         // List of tokens with probabilities (no angles)
             {
@@ -398,35 +484,34 @@ Instead of fixed top-k, we use threshold-based selection with adaptive secondary
 
 ```javascript
 [
-    {
-        token: ' floor',
-        token_id: 1234,
-        probability: 0.076,
-        is_special: false,
-        is_other: false,
-        start_angle: 0.0,      // Calculated by frontend
-        end_angle: 27.36       // Calculated by frontend
-    },
-    {
-        token: ' bed',
-        token_id: 5678,
-        probability: 0.065,
-        is_special: false,
-        is_other: false,
-        start_angle: 27.36,
-        end_angle: 50.76
-    },
-    ...
-    {
-        token: '<OTHER>',
-        token_id: -1,
-        probability: 0.674,
-        is_special: false,
-        is_other: true,
-        start_angle: 117.36,
-        end_angle: 360.0
-    }
-]
+  {
+    token: " floor",
+    token_id: 1234,
+    probability: 0.076,
+    is_special: false,
+    is_other: false,
+    start_angle: 0.0, // Calculated by frontend
+    end_angle: 27.36, // Calculated by frontend
+  },
+  {
+    token: " bed",
+    token_id: 5678,
+    probability: 0.065,
+    is_special: false,
+    is_other: false,
+    start_angle: 27.36,
+    end_angle: 50.76,
+  },
+  ...{
+    token: "<OTHER>",
+    token_id: -1,
+    probability: 0.674,
+    is_special: false,
+    is_other: true,
+    start_angle: 117.36,
+    end_angle: 360.0,
+  },
+];
 ```
 
 #### Frontend State Shape
@@ -442,7 +527,7 @@ interface AppState {
   isSpinning: boolean;
   shouldContinue: boolean;
   step: number;
-  selectionMode: 'spin' | 'manual';
+  selectionMode: "spin" | "manual";
   error: string | null;
 }
 
@@ -523,11 +608,12 @@ SVG implementation using path elements with arc commands for wedge shapes.
 // Generate random landing angle
 const landingAngle = Math.random() * 360;
 const extraSpins = 3; // spin around 3 times for effect
-const totalRotation = (360 * extraSpins) + landingAngle;
+const totalRotation = 360 * extraSpins + landingAngle;
 
 // Apply to wheel element
 wheelElement.style.transform = `rotate(${totalRotation}deg)`;
-wheelElement.style.transition = 'transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+wheelElement.style.transition =
+  "transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99)";
 
 // After animation completes, send landingAngle to backend
 ```
@@ -792,25 +878,173 @@ This design puts students in control of the generation process, making it more i
 - Need session storage (in-memory dict for MVP, Redis later if needed)
 - Harder to scale horizontally (need sticky sessions or shared state store)
 
-### Model Choice: GPT-2
+### Model Selection Strategy
 
-**Why not GPT-3, GPT-4, Claude, etc?**
+#### Default Model: GPT-2
 
-- Cost: GPT-2 runs locally, no API fees
-- Speed: Smaller model = faster inference (important for interactive UX)
-- Access: Fully open source, no API keys or restrictions
-- Educational: Modern enough to be relevant, simple enough to understand
-- Hardware: Students can run on personal laptops
-- Sufficient: Quality is "good enough" for demonstration purposes
+GPT-2 (124M parameters) is the default model for several reasons:
 
-**Why not other open models (LLaMA, Mistral, etc)?**
+**Accessibility**:
 
-- GPT-2 is simpler and better documented
-- Smaller model = lower hardware requirements
-- More students can run it on basic laptops
-- Can always upgrade later if needed
+- Runs on basic laptops with 4GB RAM
+- Small download size (500MB)
+- Fast inference even on older hardware
+- Every student can use it regardless of their computer
+
+**Reliability**:
+
+- Mature, well-tested model
+- Extensive documentation
+- Known to work reliably in educational settings
+- No authentication required
+
+**Sufficient for Learning**:
+
+- Demonstrates probabilistic token selection perfectly
+- Shows clear probability distributions
+- Quality good enough for educational purposes
+- The mechanism is the lesson, not the output quality
+
+#### Alternative Model: Llama 3.2 1B
+
+Llama 3.2 1B (1.2B parameters) is included as a modern alternative:
+
+**Educational Value**:
+
+- Shows that the token selection mechanism is universal across different model architectures
+- Produces noticeably different probability distributions for the same context
+- Demonstrates how model architecture affects output (GPT-2 vs Llama)
+- Allows students to compare "old" (2019) vs "new" (2024) model behavior
+
+**Quality Comparison**:
+
+- Better coherence than GPT-2
+- More modern training data
+- Different tokenization approach
+- Still small enough to run locally
+
+**Accessibility Considerations**:
+
+- Requires 6GB RAM (vs 2GB for GPT-2)
+- Larger download (5GB vs 500MB)
+- May require Hugging Face authentication
+- Not all students will have sufficient hardware
+
+#### Why Support Both?
+
+Having two models pre-loaded serves multiple educational goals:
+
+**Universal Mechanism Demonstration**:
+
+- Students see that the probability wheel works identically for both models
+- The wedge size = probability relationship holds regardless of model
+- Same codebase, same visualization, different underlying model
+- Reinforces: "This is how ALL autoregressive LLMs work"
+
+**Practical Comparison**:
+
+- Students can generate the same prompt with both models
+- Compare probability distributions side-by-side
+- See how GPT-2 might favor different tokens than Llama
+- Understand that model choice affects output, but not the mechanism
+
+**Hardware Flexibility**:
+
+- Students with basic laptops use GPT-2 (everyone can participate)
+- Students with better hardware can explore Llama (enrichment opportunity)
+- No one is excluded from core learning objectives
+
+**Future-Proofing**:
+
+- Demonstrates the architecture is model-agnostic
+- Sets precedent for adding more models later
+- Shows students that "ChatGPT" is just one model among many
+
+### Why All Through Hugging Face Transformers?
+
+**Consistency**:
+
+- Single unified interface (`AutoModelForCausalLM`) works for all models
+- Same loading pattern, same inference API
+- Reduces code complexity and maintenance burden
+
+**No External Dependencies**:
+
+- Everything runs locally on the Docker container
+- No API keys, rate limits, or internet required during use
+- No API costs for the university or students
+- Models downloaded once during Docker build, then cached
+
+**Educational Transparency**:
+
+- Students see actual model inference, not black-box API calls
+- Can examine tokenization, logits, probabilities directly
+- Demystifies how LLMs work under the hood
+- Supports learning objectives around model internals
+
+**Extensibility**:
+
+- Hugging Face has 500,000+ models available
+- Adding new models is trivial (update config, rebuild Docker)
+- Can easily support GPT-Neo, Mistral, Phi, or other models later
+- Future-proof architecture
+
+### Why Pre-load Both Models in Docker?
+
+**User Experience**:
+
+- Students can switch between models instantly
+- No waiting for downloads during class
+- Works offline (important for spotty classroom wifi)
+- Predictable behavior across all deployments
+
+**Educational Flow**:
+
+- Instructor can demo both models without delays
+- Students can experiment freely without download anxiety
+- Side-by-side comparisons happen in real-time
+- No "it's still downloading" interruptions during lessons
+
+**Deployment Simplicity**:
+
+- Single Docker image contains everything needed
+- No runtime model management complexity
+- Azure/cloud deployment is straightforward
+- Consistent behavior: dev = staging = production
+
+**Trade-off Accepted**:
+
+- Larger Docker image (~7-8 GB vs ~2 GB)
+- Longer initial build/pull time
+- Worth it for instant model switching and offline capability
+- Storage is cheap, student time is valuable
 
 ## Known Limitations
+
+### 0. Model Resource Requirements
+
+**Issue**: Different models have significantly different resource requirements
+
+**Impact**:
+
+- **GPT-2**: 2GB RAM - accessible to all students (even basic laptops)
+- **Llama 3.2 1B**: 6GB RAM - requires more capable hardware
+- Students with only 4GB total RAM can only use GPT-2
+- Docker image size: 7-8GB (includes both pre-loaded models)
+
+**Educational Consideration**: This limitation itself becomes a teaching moment:
+
+- Demonstrates real-world computational costs of AI
+- Shows why model size matters for deployment
+- Explains why many AI services use APIs (centralized compute)
+- Illustrates trade-offs between model quality and accessibility
+
+**Mitigation**:
+
+- GPT-2 is the default and works for everyone
+- UI clearly shows RAM requirements before switching models
+- Llama 3.2 is an optional enrichment, not required
+- Cloud deployment (Azure) can support both models for all students
 
 ### 1. Token vs Word
 
@@ -873,7 +1107,7 @@ This design puts students in control of the generation process, making it more i
 
 **Justification**:
 
-- Students are learning the *mechanism*, not evaluating quality
+- Students are learning the _mechanism_, not evaluating quality
 - Good enough for demonstration purposes
 - Coherent enough to be interesting
 - Can upgrade to better models later
