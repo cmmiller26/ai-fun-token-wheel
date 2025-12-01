@@ -12,65 +12,129 @@ from typing import Dict, List, Optional
 import torch
 import numpy as np
 import time
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-class GPT2TokenWheelGenerator:
+# Model Configuration Registry
+SUPPORTED_MODELS = {
+    'gpt2': {
+        'hf_model_name': 'gpt2',
+        'display_name': 'GPT-2 (124M)',
+        'params': '124M',
+        'size_mb': 500,
+        'ram_required_gb': 2,
+        'requires_auth': False,
+        'is_default': True,
+        'default_min_threshold': 0.1,
+        'default_secondary_threshold': 0.05
+    },
+    'llama-3.2-1b': {
+        'hf_model_name': 'meta-llama/Llama-3.2-1B',
+        'display_name': 'Llama 3.2 1B',
+        'params': '1.2B',
+        'size_mb': 5000,
+        'ram_required_gb': 6,
+        'requires_auth': True,
+        'is_default': False,
+        'default_min_threshold': 0.1,
+        'default_secondary_threshold': 0.05
+    }
+}
+
+
+class TokenWheelGenerator:
     """
-    Generator for GPT-2 token probability distributions and wheel visualizations.
+    Generator for token probability distributions and wheel visualizations.
 
     This class handles:
-    - Loading and running GPT-2 model inference
+    - Loading and running any supported language model inference
     - Extracting token probability distributions
     - Mapping probabilities to wheel wedges
     - Sampling tokens from distributions
 
     Attributes:
-        model: The GPT-2 language model
-        tokenizer: The GPT-2 tokenizer
+        model: The language model
+        tokenizer: The tokenizer
         device: Device to run inference on ('cpu' or 'cuda')
+        model_key: Key identifying which model is loaded (from SUPPORTED_MODELS)
+        model_config: Configuration dict for the loaded model
     """
 
-    def __init__(self, model_name: str = 'gpt2', device: Optional[str] = None):
+    def __init__(self, model_key: str = 'gpt2', device: Optional[str] = None, hf_token: Optional[str] = None):
         """
-        Initialize the GPT-2 Token Wheel Generator.
+        Initialize the Token Wheel Generator with the specified model.
 
         Args:
-            model_name: Name of the GPT-2 model variant to use.
-                       Options: 'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'
-                       Default: 'gpt2' (smallest, fastest)
+            model_key: Key from SUPPORTED_MODELS dict (e.g., 'gpt2', 'llama-3.2-1b')
+                      Default: 'gpt2'
             device: Device to run inference on. Options: 'cpu', 'cuda', or None.
                    If None, automatically detects CUDA availability.
+            hf_token: HuggingFace API token for gated models (required for Llama)
+
+        Raises:
+            ValueError: If model_key is not in SUPPORTED_MODELS
         """
+        # Validate model_key
+        if model_key not in SUPPORTED_MODELS:
+            raise ValueError(f"Unsupported model: {model_key}. Must be one of {list(SUPPORTED_MODELS.keys())}")
+
+        self.model_key = model_key
+        self.model_config = SUPPORTED_MODELS[model_key]
+        hf_model_name = self.model_config['hf_model_name']
+
         # Set device
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-     
+
         self.device = torch.device(device)
 
-        # Load model and tokenizer with retry logic for rate limiting
-        print(f"Loading {model_name} model on {self.device}...")
+        # Load model and tokenizer
+        # Strategy: In Docker mode (no HF_TOKEN), try loading from cache first to avoid rate limits
+        # In local dev mode (with HF_TOKEN), allow downloading if needed
+        print(f"Loading {self.model_config['display_name']} ({hf_model_name}) on {self.device}...")
 
-        max_retries = 5
-        retry_delay = 2  # Start with 2 seconds
-
-        for attempt in range(max_retries):
+        # If no token and this is a gated model, try cache-only mode first
+        if hf_token is None and self.model_config['requires_auth']:
             try:
-                self.tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-                self.model = GPT2LMHeadModel.from_pretrained(model_name)
-                break  # Success, exit retry loop
-            except Exception as e:
-                if "429" in str(e) or "Too Many Requests" in str(e):
-                    if attempt < max_retries - 1:
-                        print(f"Rate limited by HuggingFace, retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
+                print("No HF_TOKEN for gated model - attempting to load from local cache...")
+                self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, local_files_only=True)
+                self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, local_files_only=True)
+                print("Successfully loaded from local cache!")
+            except Exception as cache_error:
+                raise Exception(f"Failed to load {hf_model_name} from cache. This model requires HF_TOKEN or pre-cached files. Error: {cache_error}")
+        else:
+            # For non-gated models or when token is available, try downloading with retry logic
+            max_retries = 5
+            retry_delay = 2  # Start with 2 seconds
+
+            for attempt in range(max_retries):
+                try:
+                    self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, token=hf_token)
+                    self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, token=hf_token)
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    if "429" in str(e) or "Too Many Requests" in str(e):
+                        if attempt < max_retries - 1:
+                            print(f"Rate limited by HuggingFace, retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                        else:
+                            # Max retries reached - try loading from local cache only
+                            print("Max retries reached, loading from local cache...")
+                            try:
+                                self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, local_files_only=True)
+                                self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, local_files_only=True)
+                                print("Successfully loaded from local cache!")
+                                break
+                            except Exception as cache_error:
+                                raise Exception(f"Failed to load from cache: {cache_error}")
                     else:
-                        print("Max retries reached, attempting to use local cache...")
+                        # Not a rate limit error, raise immediately
                         raise
-                else:
-                    # Not a rate limit error, raise immediately
-                    raise
+
+        # Set pad token if missing (required for Llama and some other models)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # Move model to device and set to evaluation mode
         self.model.to(self.device)

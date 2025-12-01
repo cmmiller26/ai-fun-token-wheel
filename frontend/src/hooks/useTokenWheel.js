@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { startGeneration, spinWheel, selectToken, deleteSession } from '../services/api';
+import { useState, useEffect } from 'react';
+import { startGeneration, spinWheel, selectToken, deleteSession, getModels } from '../services/api';
 import { calculateWedgeAngles } from '../utils/wedgeCalculations';
 
 /**
@@ -21,6 +21,11 @@ export const useTokenWheel = () => {
   const [step, setStep] = useState(0);
   const [shouldContinue, setShouldContinue] = useState(true);
 
+  // Model selection state
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [currentSessionModel, setCurrentSessionModel] = useState(null);
+
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState('spin'); // 'spin' | 'manual'
 
@@ -37,6 +42,31 @@ export const useTokenWheel = () => {
   const [spinResult, setSpinResult] = useState(null); // To store result from /api/spin
 
   /**
+   * Load available models on mount
+   */
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const response = await getModels();
+        setAvailableModels(response.models);
+
+        // Set default model (prefer default, fallback to first available)
+        const defaultModel = response.models.find(m => m.is_default && m.available)
+                             || response.models.find(m => m.available);
+
+        if (defaultModel) {
+          setSelectedModel(defaultModel.key);
+        }
+      } catch (err) {
+        console.error('Error loading models:', err);
+        setError('Failed to load models');
+      }
+    };
+
+    loadModels();
+  }, []);
+
+  /**
    * Start a new generation session
    * @param {string} prompt - Initial prompt text
    */
@@ -50,7 +80,8 @@ export const useTokenWheel = () => {
     setError(null);
 
     try {
-      const response = await startGeneration(prompt);
+      // Pass selected model to API
+      const response = await startGeneration(prompt, selectedModel);
 
       // Calculate wedge angles from token probabilities
       const wedges = calculateWedgeAngles(response.tokens);
@@ -61,6 +92,9 @@ export const useTokenWheel = () => {
       setStep(response.step);
       setShouldContinue(true);
       setGeneratedTokens([]);
+
+      // Store which model this session is using
+      setCurrentSessionModel(response.model);
     } catch (err) {
       const errorMessage = err.response?.data?.detail || err.message;
       if (err.code === 'ERR_NETWORK') {
@@ -295,6 +329,7 @@ export const useTokenWheel = () => {
     setShowTokenPop(false);
     setTriggerPointerBounce(false);
     setSpinResult(null);
+    setCurrentSessionModel(null); // Clear current session model
   };
 
   /**
@@ -331,6 +366,11 @@ export const useTokenWheel = () => {
     triggerPointerBounce,
     spinResult,
 
+    // Model state
+    availableModels,
+    selectedModel,
+    currentSessionModel,
+
     // Actions
     startGeneration: handleStartGeneration,
     spin: handleSpin,
@@ -338,6 +378,7 @@ export const useTokenWheel = () => {
     selectToken: handleManualSelection,
     resetGeneration: handleResetGeneration,
     setSelectionMode: handleSetSelectionMode,
+    setSelectedModel,
     clearError,
   };
 };

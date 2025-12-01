@@ -14,6 +14,8 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 import asyncio
 import uuid
+import os
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +24,10 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from pathlib import Path
 
-from generator import GPT2TokenWheelGenerator
+from generator import TokenWheelGenerator, SUPPORTED_MODELS
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # ============================================================================
@@ -63,6 +68,7 @@ class StartResponse(BaseModel):
     context: str = Field(..., description="Current context (initially equals prompt)")
     tokens: List[WedgeInfo] = Field(..., description="List of tokens with probabilities")
     step: int = Field(..., description="Current step number (0 for initial)")
+    model: str = Field(..., description="Model key being used for this session")
 
 
 class SpinResponse(BaseModel):
@@ -112,6 +118,24 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Health status")
 
 
+class ModelInfo(BaseModel):
+    """Information about a supported model."""
+    key: str = Field(..., description="Model key (e.g., 'gpt2', 'llama-3.2-1b')")
+    name: str = Field(..., description="Display name")
+    params: str = Field(..., description="Parameter count (e.g., '124M')")
+    size_mb: int = Field(..., description="Model size in MB")
+    ram_required_gb: int = Field(..., description="RAM required in GB")
+    available: bool = Field(..., description="Whether model is loaded and available")
+    is_default: bool = Field(..., description="Whether this is the default model")
+    requires_auth: bool = Field(..., description="Whether model requires HuggingFace token")
+
+
+class ModelsResponse(BaseModel):
+    """Response body for GET /api/models endpoint."""
+    models: List[ModelInfo] = Field(..., description="List of supported models")
+    default_model: str = Field(..., description="Key of the default model")
+
+
 # ============================================================================
 # Session Storage and Management
 # ============================================================================
@@ -123,11 +147,13 @@ class SessionData:
         self,
         session_id: str,
         current_context: str,
+        model_key: str,
         min_threshold: float,
         secondary_threshold: float
     ):
         self.session_id = session_id
         self.current_context = current_context
+        self.model_key = model_key  # Track which model this session uses
         self.history: List[str] = []
         self.step = 0
         self.created_at = datetime.utcnow()
@@ -158,14 +184,16 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan context manager for startup and shutdown.
 
     On startup:
-    - Load GPT-2 model once and store in app.state
+    - Load all available models into a registry (app.state.generators)
+    - Track which models are available (app.state.available_models)
+    - Set default model (app.state.default_model)
     - Start background task for session cleanup
 
     On shutdown:
     - Cancel background cleanup task
     - Clean up resources
     """
-    # Startup: Load GPT-2 model once
+    # Startup: Load models into registry
     import time
     start_time = time.time()
 
@@ -174,16 +202,60 @@ async def lifespan(app: FastAPI):
     print(f"Start time: {datetime.utcnow()}")
     print("=" * 60)
 
-    print("Loading GPT-2 model...")
-    model_start = time.time()
-    generator = GPT2TokenWheelGenerator(model_name='gpt2')
-    app.state.generator = generator
-    model_end = time.time()
+    # Get HuggingFace token from environment (only used for local dev, not Docker)
+    # In Docker, models must be pre-loaded during build
+    hf_token = os.environ.get('HF_TOKEN', None)
+    if hf_token:
+        print("HF_TOKEN found - will use for loading gated models (local dev mode)")
+    else:
+        print("No HF_TOKEN - will attempt to load models from cache (Docker mode)")
+
+    # Initialize model registry
+    app.state.generators = {}
+    app.state.available_models = []
+
+    # Load each supported model
+    for model_key, config in SUPPORTED_MODELS.items():
+        model_start = time.time()
+
+        try:
+            print(f"Loading {config['display_name']}...")
+
+            # Always attempt to load (with token if available, from cache otherwise)
+            # In Docker: models pre-loaded during build, no token needed
+            # In local dev: token downloads models on first run
+            generator = TokenWheelGenerator(model_key=model_key, hf_token=hf_token)
+            app.state.generators[model_key] = generator
+            app.state.available_models.append(model_key)
+
+            model_end = time.time()
+            print(f"✓ {config['display_name']} loaded in {model_end - model_start:.2f}s")
+
+        except Exception as e:
+            if config['requires_auth']:
+                print(f"✗ Failed to load {config['display_name']} (not available - needs HF_TOKEN or pre-loaded cache)")
+            else:
+                print(f"✗ Failed to load {config['display_name']}: {e}")
+            continue
+
+    # Ensure at least one model loaded
+    if not app.state.generators:
+        raise RuntimeError("No models loaded! Cannot start server.")
+
+    # Set default model (prefer configured default, fallback to first available)
+    app.state.default_model = next(
+        (k for k, c in SUPPORTED_MODELS.items()
+         if c['is_default'] and k in app.state.available_models),
+        app.state.available_models[0]
+    )
 
     print("=" * 60)
-    print("Model loaded successfully! Server ready.")
-    print(f"Model load time: {model_end - model_start:.2f} seconds")
-    print(f"Total startup time: {model_end - start_time:.2f} seconds")
+    print(f"Server ready! Loaded {len(app.state.generators)} model(s):")
+    for model_key in app.state.available_models:
+        config = SUPPORTED_MODELS[model_key]
+        default_marker = " [DEFAULT]" if model_key == app.state.default_model else ""
+        print(f"  - {config['display_name']}{default_marker}")
+    print(f"Total startup time: {time.time() - start_time:.2f} seconds")
     print(f"Ready time: {datetime.utcnow()}")
     print("=" * 60)
 
@@ -270,29 +342,78 @@ async def health_check():
     return HealthResponse(status="healthy")
 
 
+@app.get("/api/models", response_model=ModelsResponse)
+async def get_models():
+    """
+    Get list of all supported models and their availability status.
+
+    Returns:
+        ModelsResponse with list of models and default model key
+
+    Each model includes:
+    - key: Model identifier
+    - name: Display name
+    - params: Parameter count
+    - size_mb: Model size in MB
+    - ram_required_gb: RAM required
+    - available: Whether model is currently loaded
+    - is_default: Whether this is the default model
+    - requires_auth: Whether model requires HuggingFace token
+    """
+    models = [
+        ModelInfo(
+            key=model_key,
+            name=config['display_name'],
+            params=config['params'],
+            size_mb=config['size_mb'],
+            ram_required_gb=config['ram_required_gb'],
+            available=(model_key in app.state.available_models),
+            is_default=config['is_default'],
+            requires_auth=config['requires_auth']
+        )
+        for model_key, config in SUPPORTED_MODELS.items()
+    ]
+
+    return ModelsResponse(
+        models=models,
+        default_model=app.state.default_model
+    )
+
+
 @app.post("/api/start", response_model=StartResponse)
 async def start_generation(request: StartRequest):
     """
     Start a new text generation session.
 
-    Creates a new session with a unique UUID, uses the shared GPT-2 generator,
+    Creates a new session with a unique UUID, validates requested model,
     gets the initial token distribution, and returns tokens with probabilities.
 
     Args:
         request: StartRequest containing prompt and optional model/threshold parameters
 
     Returns:
-        StartResponse with session_id, context, and tokens
+        StartResponse with session_id, context, tokens, and model
 
     Raises:
-        HTTPException: 500 if generation fails
+        HTTPException: 400 if requested model unavailable, 500 if generation fails
     """
     try:
+        # Validate and select model
+        model_key = request.model if request.model else app.state.default_model
+
+        # Check if requested model is available
+        if model_key not in app.state.available_models:
+            available = ", ".join(app.state.available_models)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{model_key}' is not available. Available models: {available}"
+            )
+
         # Generate unique session ID
         session_id = str(uuid.uuid4())
 
-        # Use the shared generator from app.state
-        generator = app.state.generator
+        # Get the appropriate generator from registry
+        generator = app.state.generators[model_key]
 
         # Get initial token distribution
         distribution = generator.get_next_token_distribution(
@@ -304,10 +425,11 @@ async def start_generation(request: StartRequest):
         # Get tokens with probabilities (no angles - frontend handles that)
         tokens = generator.get_tokens_with_probabilities(distribution)
 
-        # Create session data (no longer stores generator instance)
+        # Create session data with model binding
         session_data = SessionData(
             session_id=session_id,
             current_context=request.prompt,
+            model_key=model_key,
             min_threshold=request.min_threshold,
             secondary_threshold=request.secondary_threshold
         )
@@ -324,12 +446,15 @@ async def start_generation(request: StartRequest):
             session_id=session_id,
             context=request.prompt,
             tokens=token_models,
-            step=0
+            step=0,
+            model=model_key
         )
-        
-        logging.info(f"Returning response: {response.model_dump()}")
+
+        logging.info(f"Started session {session_id} with model {model_key}")
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error during generation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to start generation: {str(e)}")
@@ -357,8 +482,8 @@ async def spin_wheel(request: SessionIdRequest):
         raise HTTPException(status_code=500, detail="No current distribution in session")
 
     try:
-        # Use the shared generator
-        generator = app.state.generator
+        # Get the generator for this session's model
+        generator = app.state.generators[session.model_key]
         sampled_token_info = generator.sample_token_from_distribution(
             session.current_distribution
         )
@@ -404,8 +529,8 @@ async def select_token(request: SelectRequest):
         if session.current_distribution is None:
             raise HTTPException(status_code=400, detail="No current distribution in session")
 
-        # Use the shared generator
-        generator = app.state.generator
+        # Get the generator for this session's model
+        generator = app.state.generators[session.model_key]
         selected_token_id = request.selected_token_id
 
         # Get the probability of the selected token

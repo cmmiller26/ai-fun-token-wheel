@@ -25,7 +25,29 @@ RUN npm run build
 
 
 # ----------------------------------------------------------------------------
-# Stage 2: Build Backend Dependencies (Python + PyTorch)
+# Stage 2: Download Models (Platform-Independent)
+# This stage downloads the model files which are the same across all platforms
+# ----------------------------------------------------------------------------
+FROM python:3.11-slim AS model-downloader
+
+WORKDIR /app
+
+# Accept HF_TOKEN as a build argument (optional, for Llama 3.2 1B)
+ARG HF_TOKEN=""
+ENV HF_TOKEN=${HF_TOKEN}
+
+# Install minimal dependencies needed for downloading models
+RUN pip install --no-cache-dir transformers huggingface_hub torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Copy ONLY the download script (isolate from other backend changes)
+COPY backend/download_models.py /tmp/download_models.py
+
+# Download models - this layer will be cached unless download_models.py changes
+RUN python /tmp/download_models.py
+
+
+# ----------------------------------------------------------------------------
+# Stage 3: Build Backend Dependencies (Python + PyTorch - Platform-Specific)
 # ----------------------------------------------------------------------------
 FROM python:3.11-slim AS backend-builder
 
@@ -41,29 +63,16 @@ COPY backend/requirements.txt .
 # Install Python dependencies with CPU-only PyTorch to reduce image size
 RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Download GPT-2 model and tokenizer during build to avoid runtime downloads
-# This prevents HuggingFace rate limiting issues on Cloud Run
-# We need to ensure all tokenizer files are downloaded, not just the model
-RUN python -c "from transformers import GPT2LMHeadModel, GPT2TokenizerFast; \
-    print('Downloading tokenizer...'); \
-    tokenizer = GPT2TokenizerFast.from_pretrained('gpt2'); \
-    print('Downloading model...'); \
-    model = GPT2LMHeadModel.from_pretrained('gpt2'); \
-    print('Download complete!')"
-
 
 # ----------------------------------------------------------------------------
-# Stage 3: Final Production Image
+# Stage 4: Final Production Image
 # ----------------------------------------------------------------------------
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy the virtual environment from backend builder (includes downloaded models)
+# Copy the virtual environment from backend builder (platform-specific binaries)
 COPY --from=backend-builder /opt/venv /opt/venv
-
-# Copy HuggingFace cache to a location accessible by non-root user
-COPY --from=backend-builder /root/.cache/huggingface /home/appuser/.cache/huggingface
 
 # Activate the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
@@ -71,14 +80,17 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy backend application code
 COPY backend/ /app/
 
+# Create a non-root user before copying files that need to be owned by it
+RUN useradd -m -u 1000 appuser
+
+# Copy HuggingFace cache from model-downloader stage (platform-independent models)
+COPY --from=model-downloader --chown=appuser:appuser /root/.cache/huggingface /home/appuser/.cache/huggingface
+
 # Copy built frontend static files to a subdirectory
 COPY --from=frontend-builder /frontend/dist ./static
 
-# Create a non-root user for better security
-RUN chmod +x /app/run.sh && \
-    useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /home/appuser/.cache
+# Ensure the entrypoint script is executable and owned by appuser
+RUN chmod +x /app/run.sh && chown -R appuser:appuser /app
 
 # Set HuggingFace cache directory to the user-owned location
 # Using HF_HOME (TRANSFORMERS_CACHE is deprecated in transformers v5)

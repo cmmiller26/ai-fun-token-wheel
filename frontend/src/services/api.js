@@ -78,3 +78,12 @@ export const deleteSession = async (sessionId) => {
   const response = await axios.delete(`${API_BASE_URL}/api/session/${sessionId}`);
   return response.data;
 };
+
+/**
+ * Get list of available models
+ * @returns {Promise} List of models with availability status
+ */
+export const getModels = async () => {
+  const response = await axios.get(`${API_BASE_URL}/api/models`);
+  return response.data;
+};

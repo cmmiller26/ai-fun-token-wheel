@@ -77,12 +77,29 @@ The application includes two pre-loaded language models, selectable via the UI:
 
 ### Hugging Face Authentication (Llama 3.2)
 
-Llama models may require Hugging Face authentication:
+Llama models require Hugging Face authentication:
 
-**During Docker Build:**
+**Local Development (with .env file):**
 
 ```bash
-# Set your HF token before building
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your token
+# HF_TOKEN=your_token_here
+
+# Start backend (will auto-load .env)
+cd backend
+uvicorn main:app --reload
+```
+
+**Docker Build (with build argument):**
+
+```bash
+# Pass token during build
+docker build --build-arg HF_TOKEN=your_token_here -t ai-fun-token-wheel .
+
+# Or using docker compose with environment variable
 export HF_TOKEN="your_token_here"
 docker compose build
 ```
@@ -90,11 +107,15 @@ docker compose build
 **How to get a token:**
 
 1. Create account at <https://huggingface.co>
-2. Request access to meta-llama/Llama-3.2-1B (if gated)
+2. Accept the Llama 3.2 1B license at <https://huggingface.co/meta-llama/Llama-3.2-1B>
 3. Generate token at <https://huggingface.co/settings/tokens>
-4. Set environment variable as shown above
+4. Use token in `.env` file (local) or as build arg (Docker)
 
-**Note**: If you don't have a token, the build will skip Llama 3.2 and only include GPT-2.
+**Without HF_TOKEN:**
+
+- Build succeeds but only includes GPT-2
+- Llama 3.2 1B shows as "Unavailable" in the UI dropdown
+- All functionality works with GPT-2 alone
 
 ### Stop the Application
 
@@ -121,6 +142,11 @@ cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+# Optional: Configure HF_TOKEN for Llama support
+# cp ../.env.example ../.env
+# Edit .env and add your token
+
 uvicorn main:app --reload --port 8000
 ```
 
@@ -147,9 +173,22 @@ Docker images are automatically built and published to GitHub Container Registry
 The project includes a GitHub Actions workflow that automatically:
 
 1. Builds the unified Docker image (frontend + backend)
-2. Pushes it to GitHub Container Registry with tags for both the commit SHA and `main`
+2. Uses the `HF_TOKEN` repository secret to include both GPT-2 and Llama 3.2 1B
+3. Pushes it to GitHub Container Registry with tags for both the commit SHA and `main`
 
 This happens on every push to the main branch.
+
+**Setting up HF_TOKEN for GitHub Actions:**
+
+1. Get your HuggingFace token from <https://huggingface.co/settings/tokens>
+2. Accept the Llama 3.2 1B license at <https://huggingface.co/meta-llama/Llama-3.2-1B>
+3. Go to your repository → Settings → Secrets and variables → Actions
+4. Click "New repository secret"
+5. Name: `HF_TOKEN`
+6. Value: Your HuggingFace token
+7. Click "Add secret"
+
+The workflow will automatically use this secret during Docker builds to include both models.
 
 ### Using Pre-built Images
 
@@ -205,10 +244,16 @@ Since the application is containerized, you can deploy it to any platform that s
 2. Run the container:
 
    ```bash
+   # Basic run (both models pre-loaded in image)
    docker run -p 8000:8000 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
+
+   # Or expose on different port
+   docker run -p 8080:8080 -e PORT=8080 ghcr.io/YOUR_USERNAME/ai-fun-token-wheel:main
    ```
 
 3. Ensure the container has sufficient RAM available (see Model Configuration below)
+
+**Note**: If the image was built with `HF_TOKEN` in GitHub Actions, both models are included. Users can select between GPT-2 and Llama 3.2 1B via the UI dropdown.
 
 ### Model Configuration for Production
 
@@ -232,10 +277,11 @@ Both models are pre-loaded in the Docker image:
 
 **Build considerations**:
 
-- GitHub Actions requires HF token in repository secrets
-- Token name: `HF_TOKEN`
-- Set in: Repository Settings → Secrets → Actions
-- Docker image will be ~7-8GB (both models included)
+- **With HF_TOKEN**: Docker image is ~7-8GB (both models included)
+- **Without HF_TOKEN**: Docker image is ~2GB (GPT-2 only)
+- GitHub Actions workflow uses repository secret `HF_TOKEN` if available
+- Set up secret: Repository Settings → Secrets and variables → Actions → New repository secret
+- Users can switch between models via the UI dropdown (if both available)
 
 ## Troubleshooting
 
@@ -244,6 +290,7 @@ Both models are pre-loaded in the Docker image:
 **Symptoms**:
 
 - Application starts but only shows GPT-2 option
+- Llama 3.2 1B shows as "Unavailable" in dropdown
 - Error messages about missing models
 - "Model not found" errors in logs
 
@@ -257,7 +304,22 @@ Both models are pre-loaded in the Docker image:
 
 - Llama requires authentication token during build
 - If missing token, build succeeds but only includes GPT-2
-- To add Llama after initial build:
+- UI will show Llama as "Unavailable" - this is expected behavior
+
+**Local development (adding Llama after initial setup)**:
+
+  ```bash
+  # Create .env file with your token
+  cp .env.example .env
+  # Edit .env and add: HF_TOKEN=your_token_here
+
+  # Restart backend
+  cd backend
+  source venv/bin/activate
+  uvicorn main:app --reload
+  ```
+
+**Docker (adding Llama after initial build)**:
 
   ```bash
   export HF_TOKEN="your_token_here"
@@ -266,18 +328,38 @@ Both models are pre-loaded in the Docker image:
   docker compose up
   ```
 
-- Verify access: <https://huggingface.co/meta-llama/Llama-3.2-1B>
+**Verify you have access**:
 
-**Check which models are in the image**:
+1. Accept the license: <https://huggingface.co/meta-llama/Llama-3.2-1B>
+2. Generate token: <https://huggingface.co/settings/tokens>
+3. Test API call: `curl -H "Authorization: Bearer YOUR_TOKEN" https://huggingface.co/api/models/meta-llama/Llama-3.2-1B`
+
+**Check which models are loaded at runtime**:
 
 ```bash
-docker compose exec app ls -la /root/.cache/huggingface/hub/
+# View startup logs to see which models loaded
+docker compose logs app | grep "Loading"
+
+# Expected output with both models:
+# Loading GPT-2 (124M)...
+# ✓ GPT-2 (124M) ready
+# Loading Llama 3.2 1B...
+# ✓ Llama 3.2 1B ready
+
+# Or check via API
+curl http://localhost:8000/api/models
+```
+
+**Check which models are in the Docker image**:
+
+```bash
+docker compose exec app ls -la /home/appuser/.cache/huggingface/hub/
 ```
 
 You should see:
 
 - `models--gpt2` (always present)
-- `models--meta-llama--Llama-3.2-1B` (if auth successful)
+- `models--meta-llama--Llama-3.2-1B` (if HF_TOKEN was provided during build)
 
 ### Memory issues
 
@@ -444,17 +526,28 @@ docker system prune -a
 Build manually:
 
 ```bash
+# GPT-2 only (no token required)
 docker build -t ai-fun-token-wheel .
+docker run -p 8000:8000 ai-fun-token-wheel
+
+# Both models (with HF_TOKEN)
+docker build --build-arg HF_TOKEN=your_token_here -t ai-fun-token-wheel .
 docker run -p 8000:8000 ai-fun-token-wheel
 ```
 
-**First build**: The initial build downloads both models (~5.5GB total) and may take 10-15 minutes depending on your internet connection. Subsequent builds reuse cached layers and are much faster.
+**First build**: The initial build downloads models and may take 10-15 minutes depending on your internet connection and which models are included. Subsequent builds reuse cached layers and are much faster.
 
 **Build time estimates**:
 
+- First build with GPT-2 only: 5-7 minutes
 - First build with both models: 10-15 minutes
 - Rebuild with code changes only: 1-2 minutes
 - Rebuild with dependency changes: 3-5 minutes
+
+**Image size**:
+
+- GPT-2 only: ~2GB
+- Both models: ~7-8GB
 
 ## GitHub Codespaces
 
@@ -463,7 +556,19 @@ This project is configured for GitHub Codespaces. Click "Code" → "Codespaces" 
 Once created:
 
 ```bash
+# GPT-2 only
+docker compose up --build
+
+# Or with both models (set HF_TOKEN in Codespaces secrets)
+export HF_TOKEN="your_token_here"
 docker compose up --build
 ```
 
 The app will be available via Codespaces' port forwarding.
+
+**Setting HF_TOKEN in Codespaces:**
+
+1. Go to GitHub Settings → Codespaces → Secrets
+2. Add new secret: `HF_TOKEN`
+3. Set repository access to your project
+4. The secret will be available as an environment variable in your codespace

@@ -1,0 +1,42 @@
+NOTICE
+
+AI FUN Token Wheel
+Copyright (c) 2025 University of Iowa - AI Fundamentals Course (CSI:1040)
+
+This project uses the following third-party models and libraries:
+
+================================================================================
+Llama 3.2
+================================================================================
+
+This project uses Llama 3.2, which is licensed under the Llama 3.2 Community
+License Agreement.
+
+Llama 3.2 is licensed under the Llama 3.2 Community License,
+Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+The full license text is available at:
+https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE
+
+For more information about Llama models, visit: https://llama.meta.com
+
+================================================================================
+GPT-2
+================================================================================
+
+This project uses GPT-2 via the Hugging Face Transformers library, which is
+licensed under the Apache License 2.0.
+
+Copyright (c) Hugging Face, Inc.
+
+================================================================================
+Other Dependencies
+================================================================================
+
+This project also uses various open-source libraries including:
+- PyTorch (BSD-style license)
+- FastAPI (MIT License)
+- React (MIT License)
+- Transformers (Apache License 2.0)
+
+See requirements.txt and package.json for complete dependency lists.

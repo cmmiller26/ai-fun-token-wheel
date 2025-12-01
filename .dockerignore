@@ -44,8 +44,9 @@ env
 .DS_Store
 Thumbs.db
 
-# Documentation
+# Documentation (but keep CLAUDE.md)
 *.md
+!CLAUDE.md
 docs/
 
 # Docker files (don't need these inside the container)
