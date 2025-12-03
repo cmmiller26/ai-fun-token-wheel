@@ -96,10 +96,6 @@ RUN chmod +x /app/run.sh && chown -R appuser:appuser /app
 # Using HF_HOME (TRANSFORMERS_CACHE is deprecated in transformers v5)
 ENV HF_HOME=/home/appuser/.cache/huggingface
 
-# Force offline mode to prevent API calls when loading cached models
-# This is critical for Cloud Run where we don't have HF_TOKEN at runtime
-ENV HF_HUB_OFFLINE=1
-
 # Expose the port the app will run on. Cloud Run provides this via the PORT env var.
 # Defaulting to 8080 for local testing.
 ENV PORT=8080

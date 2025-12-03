@@ -99,17 +99,19 @@ class TokenWheelGenerator:
         if hf_token is None and self.model_config['requires_auth']:
             try:
                 print("No HF_TOKEN for gated model - attempting to load from local cache...")
-                print(f"HF_HOME environment variable: {os.environ.get('HF_HOME', 'NOT SET')}")
-                print(f"HF_HUB_OFFLINE: {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 
-                # Check if cache directory exists
-                cache_dirs = glob.glob("/home/appuser/.cache/huggingface/hub/*llama*")
-                print(f"Found cache directories: {cache_dirs}")
-
-                # With HF_HUB_OFFLINE=1, don't use local_files_only - just load normally
-                # The offline mode will prevent network calls automatically
-                self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-                self.model = AutoModelForCausalLM.from_pretrained(hf_model_name)
+                # Load from cache with explicit offline settings to avoid rate limits
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    hf_model_name,
+                    local_files_only=True,
+                    trust_remote_code=False
+                )
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    hf_model_name,
+                    local_files_only=True,
+                    trust_remote_code=False,
+                    low_cpu_mem_usage=True
+                )
                 print("Successfully loaded from local cache!")
             except Exception as cache_error:
                 print(f"Cache load error details: {cache_error}")
