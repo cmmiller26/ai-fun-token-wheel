@@ -97,10 +97,19 @@ class TokenWheelGenerator:
         if hf_token is None and self.model_config['requires_auth']:
             try:
                 print("No HF_TOKEN for gated model - attempting to load from local cache...")
+                print(f"HF_HOME environment variable: {os.environ.get('HF_HOME', 'NOT SET')}")
+                print(f"TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE', 'NOT SET')}")
+
+                # Check if cache directory exists
+                import glob
+                cache_dirs = glob.glob("/home/appuser/.cache/huggingface/hub/*llama*")
+                print(f"Found cache directories: {cache_dirs}")
+
                 self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, local_files_only=True)
                 self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, local_files_only=True)
                 print("Successfully loaded from local cache!")
             except Exception as cache_error:
+                print(f"Cache load error details: {cache_error}")
                 raise Exception(f"Failed to load {hf_model_name} from cache. This model requires HF_TOKEN or pre-cached files. Error: {cache_error}")
         else:
             # For non-gated models or when token is available, try downloading with retry logic
