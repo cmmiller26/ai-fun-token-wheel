@@ -12,6 +12,8 @@ from typing import Dict, List, Optional
 import torch
 import numpy as np
 import time
+import os
+import glob
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
@@ -101,7 +103,6 @@ class TokenWheelGenerator:
                 print(f"TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE', 'NOT SET')}")
 
                 # Check if cache directory exists
-                import glob
                 cache_dirs = glob.glob("/home/appuser/.cache/huggingface/hub/*llama*")
                 print(f"Found cache directories: {cache_dirs}")
 
