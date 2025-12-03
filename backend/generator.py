@@ -101,16 +101,19 @@ class TokenWheelGenerator:
                 print("No HF_TOKEN for gated model - attempting to load from local cache...")
 
                 # Load from cache with explicit offline settings to avoid rate limits
+                # token=False disables all HuggingFace API calls (prevents rate limiting)
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     hf_model_name,
                     local_files_only=True,
-                    trust_remote_code=False
+                    trust_remote_code=False,
+                    token=False
                 )
                 self.model = AutoModelForCausalLM.from_pretrained(
                     hf_model_name,
                     local_files_only=True,
                     trust_remote_code=False,
-                    low_cpu_mem_usage=True
+                    low_cpu_mem_usage=True,
+                    token=False
                 )
                 print("Successfully loaded from local cache!")
             except Exception as cache_error:
