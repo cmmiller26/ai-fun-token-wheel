@@ -108,7 +108,98 @@ class TokenWheelGenerator:
         self.model.to(self.device)
         self.model.eval()
 
+        # Detect if this is a SentencePiece tokenizer (like Llama/TinyLlama)
+        # SentencePiece uses ▁ to represent spaces
+        # Check tokenizer class name or look for ▁ in a common word token
+        tokenizer_class = self.tokenizer.__class__.__name__
+        self.is_sentencepiece = (
+            hasattr(self.tokenizer, 'sp_model') or
+            'Llama' in tokenizer_class or
+            'sentencepiece' in tokenizer_class.lower() or
+            any('▁' in str(self.tokenizer.convert_ids_to_tokens(i)) for i in range(10, 110))
+        )
+
         print(f"Model loaded successfully!")
+
+    def _get_token_display(self, token_id: int) -> str:
+        """
+        Get the display representation of a token for the UI (wheel/wedges).
+
+        Shows tokens as they should appear in the visualization:
+        - Special byte tokens show as <0x0A>, <0x09>, etc.
+        - Control tokens show as </s>, <s>, etc.
+        - Regular tokens show with proper spacing
+
+        Args:
+            token_id: The token ID
+
+        Returns:
+            Display string for the UI
+        """
+        if self.is_sentencepiece:
+            # For SentencePiece tokenizers, get raw token
+            token_piece = self.tokenizer.convert_ids_to_tokens(token_id)
+            if isinstance(token_piece, str):
+                # Keep special tokens as-is for display (e.g., <0x0A>, </s>)
+                if token_piece.startswith('<') and token_piece.endswith('>'):
+                    return token_piece
+                # Replace ▁ with space for regular tokens
+                return token_piece.replace('▁', ' ')
+            return str(token_piece)
+        else:
+            # For GPT-2, use decode
+            return self.tokenizer.decode([token_id])
+
+    def _decode_token(self, token_id: int) -> str:
+        """
+        Decode a token ID to its actual text representation for generation.
+
+        Converts tokens to what they actually produce in text:
+        - <0x0A> → newline character (\n)
+        - <0x09> → tab character (\t)
+        - <0x20> → space
+        - </s>, <s> → empty string (control tokens don't add text)
+        - Regular tokens → their text with proper spacing
+
+        Args:
+            token_id: The token ID to decode
+
+        Returns:
+            The actual text string this token produces
+        """
+        if self.is_sentencepiece:
+            # For SentencePiece tokenizers, get raw token and convert
+            token_piece = self.tokenizer.convert_ids_to_tokens(token_id)
+            if isinstance(token_piece, str):
+                # Handle special byte tokens like <0x0A> (newline), <0x09> (tab), etc.
+                if token_piece.startswith('<0x') and token_piece.endswith('>'):
+                    try:
+                        # Extract hex value and convert to actual character
+                        hex_value = token_piece[3:-1]
+                        char_code = int(hex_value, 16)
+                        return chr(char_code)
+                    except (ValueError, OverflowError):
+                        # If conversion fails, return original
+                        pass
+
+                # Handle control tokens (</s>, <s>, etc.) - they don't add text
+                if token_piece.startswith('<') and token_piece.endswith('>'):
+                    # Control tokens produce no output in generated text
+                    return ''
+
+                # Replace ▁ with space for regular tokens
+                return token_piece.replace('▁', ' ')
+            return str(token_piece)
+        else:
+            # For standard tokenizers like GPT-2, use decode
+            decoded = self.tokenizer.decode([token_id])
+
+            # Handle GPT-2 special tokens
+            if token_id in self.tokenizer.all_special_ids:
+                # Special tokens like <|endoftext|> don't produce visible output
+                return ''
+
+            return decoded
 
     def get_next_token_distribution(
         self,
@@ -156,7 +247,8 @@ class TokenWheelGenerator:
 
         for token_id in np.where(primary_mask)[0]:
             prob = float(probs_np[token_id])
-            token_str = self.tokenizer.decode([token_id])
+            # Use display representation for UI (shows <0x0A> etc.)
+            token_str = self._get_token_display(int(token_id))
 
             selected_tokens.append({
                 'token': token_str,
@@ -175,7 +267,8 @@ class TokenWheelGenerator:
 
             for token_id in np.where(secondary_mask)[0]:
                 prob = float(probs_np[token_id])
-                token_str = self.tokenizer.decode([token_id])
+                # Use display representation for UI (shows <0x0A> etc.)
+                token_str = self._get_token_display(int(token_id))
 
                 selected_tokens.append({
                     'token': token_str,
@@ -314,7 +407,8 @@ class TokenWheelGenerator:
             top_other_tokens = []
             for i in range(min(top_other_count, len(other_tokens))):
                 token_id = other_tokens[i]['token_id']
-                token_str = self.tokenizer.decode([token_id])
+                # Use display representation for UI (shows <0x0A> etc.)
+                token_str = self._get_token_display(token_id)
                 top_other_tokens.append({
                     'token': token_str,
                     'token_id': token_id,
@@ -553,10 +647,11 @@ class TokenWheelGenerator:
         # Sample from the other tokens
         sampled_idx = np.random.choice(len(other_token_ids), p=other_probs)
         sampled_token_id = other_token_ids[sampled_idx]
-        sampled_token = self.tokenizer.decode([sampled_token_id])
+        # Use display representation for UI (shows <0x0A> etc.)
+        sampled_token_display = self._get_token_display(sampled_token_id)
 
         return {
-            'token': sampled_token,
+            'token': sampled_token_display,
             'token_id': int(sampled_token_id),
             'probability': float(probs_np[sampled_token_id]),
             'wedge_start': other_wedge['start_angle'],

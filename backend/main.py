@@ -536,7 +536,7 @@ async def select_token(request: SelectRequest):
         # Get the probability of the selected token
         if selected_token_id != -1:
             # For a specific token, find it in the current distribution
-            selected_token = generator.tokenizer.decode([selected_token_id])
+            selected_token = generator._decode_token(selected_token_id)
 
             # Look for the token in the distribution to get its probability
             token_probability = None
