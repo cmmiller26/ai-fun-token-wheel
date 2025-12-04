@@ -30,13 +30,13 @@ SUPPORTED_MODELS = {
         'default_min_threshold': 0.1,
         'default_secondary_threshold': 0.05
     },
-    'llama-3.2-1b': {
-        'hf_model_name': 'meta-llama/Llama-3.2-1B',
-        'display_name': 'Llama 3.2 1B',
-        'params': '1.2B',
-        'size_mb': 5000,
-        'ram_required_gb': 6,
-        'requires_auth': True,
+    'tinyllama-1.1b': {
+        'hf_model_name': 'TinyLlama/TinyLlama-1.1B-Chat-v1.0',
+        'display_name': 'TinyLlama 1.1B',
+        'params': '1.1B',
+        'size_mb': 2200,
+        'ram_required_gb': 4,
+        'requires_auth': False,
         'is_default': False,
         'default_min_threshold': 0.1,
         'default_secondary_threshold': 0.05
@@ -90,66 +90,17 @@ class TokenWheelGenerator:
 
         self.device = torch.device(device)
 
-        # Load model and tokenizer
-        # Strategy: In Docker mode (no HF_TOKEN), try loading from cache first to avoid rate limits
-        # In local dev mode (with HF_TOKEN), allow downloading if needed
+        # Load model and tokenizer (all models are ungated)
         print(f"Loading {self.model_config['display_name']} ({hf_model_name}) on {self.device}...")
 
-        # If no token and this is a gated model, try cache-only mode first
-        if hf_token is None and self.model_config['requires_auth']:
-            try:
-                print("No HF_TOKEN for gated model - attempting to load from local cache...")
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(hf_model_name)
+            print("Model loaded successfully!")
+        except Exception as e:
+            raise Exception(f"Failed to load {hf_model_name}: {e}")
 
-                # Load from cache with explicit offline settings to avoid rate limits
-                # token=False disables all HuggingFace API calls (prevents rate limiting)
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    hf_model_name,
-                    local_files_only=True,
-                    trust_remote_code=False,
-                    token=False
-                )
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    hf_model_name,
-                    local_files_only=True,
-                    trust_remote_code=False,
-                    low_cpu_mem_usage=True,
-                    token=False
-                )
-                print("Successfully loaded from local cache!")
-            except Exception as cache_error:
-                print(f"Cache load error details: {cache_error}")
-                raise Exception(f"Failed to load {hf_model_name} from cache. This model requires HF_TOKEN or pre-cached files. Error: {cache_error}")
-        else:
-            # For non-gated models or when token is available, try downloading with retry logic
-            max_retries = 5
-            retry_delay = 2  # Start with 2 seconds
-
-            for attempt in range(max_retries):
-                try:
-                    self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, token=hf_token)
-                    self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, token=hf_token)
-                    break  # Success, exit retry loop
-                except Exception as e:
-                    if "429" in str(e) or "Too Many Requests" in str(e):
-                        if attempt < max_retries - 1:
-                            print(f"Rate limited by HuggingFace, retrying in {retry_delay}s...")
-                            time.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                        else:
-                            # Max retries reached - try loading from local cache only
-                            print("Max retries reached, loading from local cache...")
-                            try:
-                                self.tokenizer = AutoTokenizer.from_pretrained(hf_model_name, local_files_only=True)
-                                self.model = AutoModelForCausalLM.from_pretrained(hf_model_name, local_files_only=True)
-                                print("Successfully loaded from local cache!")
-                                break
-                            except Exception as cache_error:
-                                raise Exception(f"Failed to load from cache: {cache_error}")
-                    else:
-                        # Not a rate limit error, raise immediately
-                        raise
-
-        # Set pad token if missing (required for Llama and some other models)
+        # Set pad token if missing (required for TinyLlama and some other models)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 

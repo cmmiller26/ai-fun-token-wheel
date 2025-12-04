@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Download models for AI FUN Token Wheel during Docker build.
-Downloads GPT-2 (always) and Llama 3.2 1B (if HF_TOKEN is provided).
+Downloads GPT-2 and TinyLlama 1.1B (both ungated, no authentication needed).
 """
-import os
 import sys
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -21,32 +20,26 @@ def download_gpt2():
         return False
 
 
-def download_llama(token):
-    """Download Llama 3.2 1B model (requires HuggingFace token)."""
-    print('Downloading Llama 3.2 1B with authentication...')
+def download_tinyllama():
+    """Download TinyLlama 1.1B model (no authentication required)."""
+    print('Downloading TinyLlama 1.1B...')
     try:
-        AutoTokenizer.from_pretrained('meta-llama/Llama-3.2-1B', token=token)
-        AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3.2-1B', token=token)
-        print('✓ Llama 3.2 1B download complete!')
+        AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+        AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+        print('✓ TinyLlama 1.1B download complete!')
         return True
     except Exception as e:
-        print(f'ERROR downloading Llama 3.2 1B: {e}')
+        print(f'ERROR downloading TinyLlama 1.1B: {e}')
         return False
 
 
 def main():
-    # Always download GPT-2
+    # Download both models
     if not download_gpt2():
         sys.exit(1)
 
-    # Download Llama only if HF_TOKEN is provided
-    hf_token = os.environ.get('HF_TOKEN')
-    if hf_token:
-        print('\nHF_TOKEN detected - downloading Llama 3.2 1B...')
-        if not download_llama(hf_token):
-            sys.exit(1)
-    else:
-        print('\nSkipping Llama 3.2 1B - no HF_TOKEN provided (GPT-2 only build)')
+    if not download_tinyllama():
+        sys.exit(1)
 
     print('\n✓ All model downloads complete!')
 

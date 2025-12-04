@@ -32,10 +32,6 @@ FROM python:3.11-slim AS model-downloader
 
 WORKDIR /app
 
-# Accept HF_TOKEN as a build argument (optional, for Llama 3.2 1B)
-ARG HF_TOKEN=""
-ENV HF_TOKEN=${HF_TOKEN}
-
 # Install minimal dependencies needed for downloading models
 RUN pip install --no-cache-dir transformers huggingface_hub torch --extra-index-url https://download.pytorch.org/whl/cpu
 
