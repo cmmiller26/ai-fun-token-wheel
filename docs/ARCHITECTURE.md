@@ -2,7 +2,7 @@
 
 ## System Overview
 
-AI FUN Token Wheel is a client-server application that visualizes LLM token generation through a probability wheel interface. The application currently supports two language models: GPT-2 (124M) as the default, and Llama 3.2 1B as a modern alternative. Both models run locally via Hugging Face Transformers with no API costs.
+AI FUN Token Wheel is a client-server application that visualizes LLM token generation through a probability wheel interface. The application currently supports two language models: GPT-2 (124M) as the default, and TinyLlama 1.1B as a modern alternative. Both models run locally via Hugging Face Transformers with no API costs and no authentication required.
 
 The architecture consists of two main components:
 
@@ -17,15 +17,15 @@ The application supports multiple language models through Hugging Face Transform
 
 ### Current Models
 
-| Model            | Parameters | RAM Required | Download Size | Pre-loaded | Default | Notes                               |
-| ---------------- | ---------- | ------------ | ------------- | ---------- | ------- | ----------------------------------- |
-| **GPT-2**        | 124M       | 2 GB         | ~500 MB       | ✓ Yes      | ✓ Yes   | Most accessible, proven reliable    |
-| **Llama 3.2 1B** | 1.2B       | 6 GB         | ~5 GB         | ✓ Yes      | No      | Modern architecture, better quality |
+| Model                | Parameters | RAM Required | Download Size | Pre-loaded | Default | Notes                               |
+| -------------------- | ---------- | ------------ | ------------- | ---------- | ------- | ----------------------------------- |
+| **GPT-2**            | 124M       | 2 GB         | ~500 MB       | ✓ Yes      | ✓ Yes   | Most accessible, proven reliable    |
+| **TinyLlama 1.1B** | 1.1B       | 4 GB         | ~2.2 GB       | ✓ Yes      | No      | Modern architecture, better quality |
 
 ### Model Selection
 
 - **Default**: GPT-2 (124M) - Chosen for accessibility and reliability
-- **Alternative**: Llama 3.2 1B - For users with sufficient RAM (6GB+) who want to explore a more modern model
+- **Alternative**: TinyLlama 1.1B - For users with sufficient RAM (4GB+) who want to explore a more modern model
 - **Comparison**: Students can switch between models to see how different LLMs produce different probability distributions for the same context
 
 ### Resource Requirements
@@ -33,9 +33,9 @@ The application supports multiple language models through Hugging Face Transform
 **Minimum system requirements:**
 
 - To run GPT-2: 4GB RAM total (2GB for model + 2GB for system)
-- To run Llama 3.2 1B: 8GB RAM total (6GB for model + 2GB for system)
-- Docker image size: ~7-8 GB (includes both models pre-loaded)
-- Disk space: 10GB free space recommended
+- To run TinyLlama 1.1B: 6GB RAM total (4GB for model + 2GB for system)
+- Docker image size: ~3-4 GB (includes both models pre-loaded)
+- Disk space: 5GB free space recommended
 
 ### Extensibility
 
@@ -45,7 +45,7 @@ The architecture supports ANY autoregressive language model available through Hu
 2. (Optional) Pre-loading in Dockerfile for instant availability
 3. No changes to core token generation logic required
 
-Potential future additions: GPT-2 Medium/Large, Llama 3.2 3B, GPT-Neo, Mistral variants, or other Hugging Face models as they become available.
+Potential future additions: GPT-2 Medium/Large, Llama 3.2 models, GPT-Neo, Mistral variants, or other Hugging Face models as they become available.
 
 ## High-Level Data Flow
 
@@ -80,7 +80,7 @@ Backend Processes Selection → Display Selected Token → Update Context → Re
 - **FastAPI**: Async web framework for API endpoints
 - **PyTorch**: Deep learning framework (required by Transformers)
 - **Hugging Face Transformers**: Unified interface for all supported models
-  - Currently supports: GPT-2 (124M, default) and Llama 3.2 1B (1.2B)
+  - Currently supports: GPT-2 (124M, default) and TinyLlama 1.1B (1.1B)
   - Model-agnostic architecture: Easy to add future models
 - **Uvicorn**: ASGI server
 
@@ -98,9 +98,9 @@ The main class handling all model inference, probability calculations, and token
 __init__(model_name='gpt2', device='cpu', hf_token=None)
 # Loads specified model and tokenizer from Hugging Face
 # Args:
-#   model_name: Key from SUPPORTED_MODELS ('gpt2' or 'llama-3.2-1b')
+#   model_name: Key from SUPPORTED_MODELS ('gpt2' or 'tinyllama-1.1b')
 #   device: 'cpu' or 'cuda' (CPU-only for most educational deployments)
-#   hf_token: Optional Hugging Face token for gated models (Llama 3.2)
+#   hf_token: Optional Hugging Face token (not needed for current models)
 # Uses AutoModelForCausalLM and AutoTokenizer for model-agnostic loading
 # Handles model-specific initialization (e.g., pad tokens for Llama)
 # Both supported models are pre-loaded in Docker, so loading is instant
@@ -110,7 +110,7 @@ get_next_token_distribution(context, min_threshold=0.01, secondary_threshold=0.0
 # Output: Dynamic set of tokens with probabilities
 # Process:
 #   1. Tokenize context
-#   2. Forward pass through selected model (GPT-2 or Llama 3.2 1B)
+#   2. Forward pass through selected model (GPT-2 or TinyLlama 1.1B)
 #   3. Apply softmax to logits
 #   4. Select tokens ≥ min_threshold (1%)
 #   5. If remaining probability > 20%, also include tokens ≥ secondary_threshold
@@ -152,7 +152,7 @@ should_end_generation(token_info, context, max_length=50)
 # Process: Check if EOS token, max length, or other stopping conditions
 ```
 
-**Model-Agnostic Design**: This class works identically regardless of which model is loaded. The probability extraction logic (`get_next_token_distribution`), token selection (`select_token_by_id`), and all other methods operate the same way for GPT-2, Llama 3.2 1B, or any future model. The educational visualization (probability wheel with wedge sizes) remains accurate and consistent across all models.
+**Model-Agnostic Design**: This class works identically regardless of which model is loaded. The probability extraction logic (`get_next_token_distribution`), token selection (`select_token_by_id`), and all other methods operate the same way for GPT-2, TinyLlama 1.1B, or any future model. The educational visualization (probability wheel with wedge sizes) remains accurate and consistent across all models.
 
 **Why This Works**: All autoregressive language models follow the same fundamental pattern:
 
@@ -186,14 +186,14 @@ GET /api/models
                 "requires_auth": false
             },
             {
-                "key": "llama-3.2-1b",
-                "name": "Llama 3.2 1B",
-                "params": "1.2B",
-                "size_mb": 5000,
-                "ram_required_gb": 6,
+                "key": "tinyllama-1.1b",
+                "name": "TinyLlama 1.1B",
+                "params": "1.1B",
+                "size_mb": 2200,
+                "ram_required_gb": 4,
                 "preloaded": true,
                 "is_default": false,
-                "requires_auth": true
+                "requires_auth": false
             }
         ],
         "default_model": "gpt2"
@@ -203,7 +203,7 @@ POST /api/start
     Body: {
         "prompt": "The cat sat on the",
         "model": "gpt2",                    // optional, default "gpt2"
-                                            // options: "gpt2", "llama-3.2-1b"
+                                            // options: "gpt2", "tinyllama-1.1b"
         "min_threshold": 0.01,              // optional, default 0.01 (1%)
         "secondary_threshold": 0.005        // optional, default 0.005 (0.5%)
     }
@@ -905,9 +905,9 @@ GPT-2 (124M parameters) is the default model for several reasons:
 - Quality good enough for educational purposes
 - The mechanism is the lesson, not the output quality
 
-#### Alternative Model: Llama 3.2 1B
+#### Alternative Model: TinyLlama 1.1B
 
-Llama 3.2 1B (1.2B parameters) is included as a modern alternative:
+TinyLlama 1.1B (1.1B parameters) is included as a modern alternative:
 
 **Educational Value**:
 
@@ -925,10 +925,10 @@ Llama 3.2 1B (1.2B parameters) is included as a modern alternative:
 
 **Accessibility Considerations**:
 
-- Requires 6GB RAM (vs 2GB for GPT-2)
-- Larger download (5GB vs 500MB)
-- May require Hugging Face authentication
-- Not all students will have sufficient hardware
+- Requires 4GB RAM (vs 2GB for GPT-2)
+- Larger download (2.2GB vs 500MB)
+- No authentication required (ungated model)
+- More accessible than larger models like Llama 3.2
 
 #### Why Support Both?
 
@@ -951,7 +951,7 @@ Having two models pre-loaded serves multiple educational goals:
 **Hardware Flexibility**:
 
 - Students with basic laptops use GPT-2 (everyone can participate)
-- Students with better hardware can explore Llama (enrichment opportunity)
+- Students with better hardware can explore TinyLlama (enrichment opportunity)
 - No one is excluded from core learning objectives
 
 **Future-Proofing**:
@@ -1009,12 +1009,12 @@ Having two models pre-loaded serves multiple educational goals:
 
 - Single Docker image contains everything needed
 - No runtime model management complexity
-- Azure/cloud deployment is straightforward
+- Cloud deployment is straightforward
 - Consistent behavior: dev = staging = production
 
 **Trade-off Accepted**:
 
-- Larger Docker image (~7-8 GB vs ~2 GB)
+- Larger Docker image (~3-4 GB vs ~1 GB)
 - Longer initial build/pull time
 - Worth it for instant model switching and offline capability
 - Storage is cheap, student time is valuable
@@ -1028,9 +1028,9 @@ Having two models pre-loaded serves multiple educational goals:
 **Impact**:
 
 - **GPT-2**: 2GB RAM - accessible to all students (even basic laptops)
-- **Llama 3.2 1B**: 6GB RAM - requires more capable hardware
+- **TinyLlama 1.1B**: 4GB RAM - accessible to most modern systems
 - Students with only 4GB total RAM can only use GPT-2
-- Docker image size: 7-8GB (includes both pre-loaded models)
+- Docker image size: 3-4GB (includes both pre-loaded models)
 
 **Educational Consideration**: This limitation itself becomes a teaching moment:
 
@@ -1043,8 +1043,8 @@ Having two models pre-loaded serves multiple educational goals:
 
 - GPT-2 is the default and works for everyone
 - UI clearly shows RAM requirements before switching models
-- Llama 3.2 is an optional enrichment, not required
-- Cloud deployment (Azure) can support both models for all students
+- TinyLlama is an optional enrichment, not required
+- Cloud deployment can support both models for all students
 
 ### 1. Token vs Word
 

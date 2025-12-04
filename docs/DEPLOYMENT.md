@@ -7,7 +7,7 @@ This document outlines how to run the AI FUN Token Wheel application locally wit
 The application uses a **unified Docker architecture** where:
 
 - A single Docker image contains both frontend (React) and backend (FastAPI)
-- The FastAPI backend loads language models (GPT-2 and Llama 3.2 1B) via Hugging Face Transformers and serves the React frontend as static files
+- The FastAPI backend loads language models (GPT-2 and TinyLlama 1.1B) via Hugging Face Transformers and serves the React frontend as static files
 - Both models are pre-loaded in the Docker image for instant availability
 - One container, one port (8000), one deployment
 
@@ -19,8 +19,8 @@ Run the application on your local machine using Docker Compose.
 
 - Docker Desktop installed ([Download here](https://www.docker.com/products/docker-desktop))
 - At least 4GB RAM allocated to Docker (for GPT-2)
-- 8GB+ RAM recommended (to support both GPT-2 and Llama 3.2 1B)
-- 10GB free disk space (for Docker image with pre-loaded models)
+- 6GB+ RAM recommended (to support both GPT-2 and TinyLlama 1.1B)
+- 5GB free disk space (for Docker image with pre-loaded models)
 
 ### Quick Start
 
@@ -47,11 +47,11 @@ Run the application on your local machine using Docker Compose.
 
    **Note on models**:
 
-   - Both GPT-2 and Llama 3.2 1B are pre-loaded in the Docker image
+   - Both GPT-2 and TinyLlama 1.1B are pre-loaded in the Docker image
    - No download wait - models available immediately
-   - First build takes longer (~10-15 minutes) due to model downloads
+   - First build takes longer (~5-10 minutes) due to model downloads
    - Subsequent runs start in seconds
-   - Docker image size: ~7-8 GB
+   - Docker image size: ~3-4 GB
 
 ## Model Information
 
@@ -66,56 +66,14 @@ The application includes two pre-loaded language models, selectable via the UI:
 - **Authentication**: None required
 - **Best For**: All students, basic laptops, guaranteed compatibility
 
-### Llama 3.2 1B (Alternative)
+### TinyLlama 1.1B (Alternative)
 
-- **Parameters**: 1.2B
-- **RAM Required**: 6GB
-- **Download Size**: ~5GB
+- **Parameters**: 1.1B
+- **RAM Required**: 4GB
+- **Download Size**: ~2.2GB
 - **Status**: Pre-loaded in Docker image
-- **Authentication**: May require Hugging Face token (see below)
+- **Authentication**: None required (ungated model)
 - **Best For**: Students with sufficient RAM who want to explore a modern model
-
-### Hugging Face Authentication (Llama 3.2)
-
-Llama models require Hugging Face authentication:
-
-**Local Development (with .env file):**
-
-```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit .env and add your token
-# HF_TOKEN=your_token_here
-
-# Start backend (will auto-load .env)
-cd backend
-uvicorn main:app --reload
-```
-
-**Docker Build (with build argument):**
-
-```bash
-# Pass token during build
-docker build --build-arg HF_TOKEN=your_token_here -t ai-fun-token-wheel .
-
-# Or using docker compose with environment variable
-export HF_TOKEN="your_token_here"
-docker compose build
-```
-
-**How to get a token:**
-
-1. Create account at <https://huggingface.co>
-2. Accept the Llama 3.2 1B license at <https://huggingface.co/meta-llama/Llama-3.2-1B>
-3. Generate token at <https://huggingface.co/settings/tokens>
-4. Use token in `.env` file (local) or as build arg (Docker)
-
-**Without HF_TOKEN:**
-
-- Build succeeds but only includes GPT-2
-- Llama 3.2 1B shows as "Unavailable" in the UI dropdown
-- All functionality works with GPT-2 alone
 
 ### Stop the Application
 
@@ -143,10 +101,6 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Optional: Configure HF_TOKEN for Llama support
-# cp ../.env.example ../.env
-# Edit .env and add your token
-
 uvicorn main:app --reload --port 8000
 ```
 
@@ -173,22 +127,10 @@ Docker images are automatically built and published to GitHub Container Registry
 The project includes a GitHub Actions workflow that automatically:
 
 1. Builds the unified Docker image (frontend + backend)
-2. Uses the `HF_TOKEN` repository secret to include both GPT-2 and Llama 3.2 1B
+2. Downloads and includes both GPT-2 and TinyLlama 1.1B (no authentication required)
 3. Pushes it to GitHub Container Registry with tags for both the commit SHA and `main`
 
-This happens on every push to the main branch.
-
-**Setting up HF_TOKEN for GitHub Actions:**
-
-1. Get your HuggingFace token from <https://huggingface.co/settings/tokens>
-2. Accept the Llama 3.2 1B license at <https://huggingface.co/meta-llama/Llama-3.2-1B>
-3. Go to your repository → Settings → Secrets and variables → Actions
-4. Click "New repository secret"
-5. Name: `HF_TOKEN`
-6. Value: Your HuggingFace token
-7. Click "Add secret"
-
-The workflow will automatically use this secret during Docker builds to include both models.
+This happens on every push to the main branch. No secrets or tokens required - both models are ungated.
 
 ### Using Pre-built Images
 
@@ -253,35 +195,34 @@ Since the application is containerized, you can deploy it to any platform that s
 
 3. Ensure the container has sufficient RAM available (see Model Configuration below)
 
-**Note**: If the image was built with `HF_TOKEN` in GitHub Actions, both models are included. Users can select between GPT-2 and Llama 3.2 1B via the UI dropdown.
+**Note**: Both models are included in every build - no authentication required. Users can select between GPT-2 and TinyLlama 1.1B via the UI dropdown.
 
 ### Model Configuration for Production
 
 Both models are pre-loaded in the Docker image:
 
 - GPT-2 (124M): Always included, works for all users
-- Llama 3.2 1B: Included if HF token provided during build
+- TinyLlama 1.1B: Always included, no authentication needed
 
 **Memory planning**:
 
-- Container needs minimum 8GB RAM to support both models
+- Container needs minimum 6GB RAM to support both models
 - Users can switch between models via UI
 - GPT-2 will work on smaller instances (4GB RAM)
-- Consider RAM limits when choosing Azure container size
+- Consider RAM limits when choosing container size
 
-**Azure Container Instances sizing**:
+**Cloud Container Instances sizing**:
 
-- **Small (4GB RAM, 2 vCPU)**: GPT-2 only - $35/month
-- **Medium (8GB RAM, 2 vCPU)**: Both models - $70/month
+- **Small (4GB RAM, 2 vCPU)**: GPT-2 only
+- **Medium (6-8GB RAM, 2 vCPU)**: Both models
 - **Recommended**: Medium for full experience
 
 **Build considerations**:
 
-- **With HF_TOKEN**: Docker image is ~7-8GB (both models included)
-- **Without HF_TOKEN**: Docker image is ~2GB (GPT-2 only)
-- GitHub Actions workflow uses repository secret `HF_TOKEN` if available
-- Set up secret: Repository Settings → Secrets and variables → Actions → New repository secret
-- Users can switch between models via the UI dropdown (if both available)
+- Docker image is ~3-4GB (both models included)
+- No secrets or authentication required
+- GitHub Actions workflow automatically includes both models
+- Users can switch between models via the UI dropdown
 
 ## Troubleshooting
 
@@ -290,7 +231,7 @@ Both models are pre-loaded in the Docker image:
 **Symptoms**:
 
 - Application starts but only shows GPT-2 option
-- Llama 3.2 1B shows as "Unavailable" in dropdown
+- TinyLlama 1.1B shows as "Unavailable" in dropdown
 - Error messages about missing models
 - "Model not found" errors in logs
 
@@ -300,39 +241,12 @@ Both models are pre-loaded in the Docker image:
 - If failing, check Docker has internet access during build
 - Verify Hugging Face is accessible: `curl -I https://huggingface.co`
 
-**Llama 3.2 issues**:
+**TinyLlama issues**:
 
-- Llama requires authentication token during build
-- If missing token, build succeeds but only includes GPT-2
-- UI will show Llama as "Unavailable" - this is expected behavior
-
-**Local development (adding Llama after initial setup)**:
-
-  ```bash
-  # Create .env file with your token
-  cp .env.example .env
-  # Edit .env and add: HF_TOKEN=your_token_here
-
-  # Restart backend
-  cd backend
-  source venv/bin/activate
-  uvicorn main:app --reload
-  ```
-
-**Docker (adding Llama after initial build)**:
-
-  ```bash
-  export HF_TOKEN="your_token_here"
-  docker compose down
-  docker compose build --no-cache
-  docker compose up
-  ```
-
-**Verify you have access**:
-
-1. Accept the license: <https://huggingface.co/meta-llama/Llama-3.2-1B>
-2. Generate token: <https://huggingface.co/settings/tokens>
-3. Test API call: `curl -H "Authorization: Bearer YOUR_TOKEN" https://huggingface.co/api/models/meta-llama/Llama-3.2-1B`
+- TinyLlama requires no authentication
+- Should always download successfully alongside GPT-2
+- If failing, check Docker has internet access during build
+- Verify Hugging Face is accessible: `curl -I https://huggingface.co`
 
 **Check which models are loaded at runtime**:
 
@@ -343,8 +257,8 @@ docker compose logs app | grep "Loading"
 # Expected output with both models:
 # Loading GPT-2 (124M)...
 # ✓ GPT-2 (124M) ready
-# Loading Llama 3.2 1B...
-# ✓ Llama 3.2 1B ready
+# Loading TinyLlama 1.1B...
+# ✓ TinyLlama 1.1B ready
 
 # Or check via API
 curl http://localhost:8000/api/models
@@ -359,13 +273,13 @@ docker compose exec app ls -la /home/appuser/.cache/huggingface/hub/
 You should see:
 
 - `models--gpt2` (always present)
-- `models--meta-llama--Llama-3.2-1B` (if HF_TOKEN was provided during build)
+- `models--TinyLlama--TinyLlama-1.1B-Chat-v1.0` (always present)
 
 ### Memory issues
 
 **Symptoms**:
 
-- Application crashes when switching to Llama 3.2 1B
+- Application crashes when switching to TinyLlama 1.1B
 - "Killed" messages in logs
 - Out of memory errors
 - System becomes unresponsive
@@ -373,7 +287,7 @@ You should see:
 **Model RAM requirements**:
 
 - **GPT-2**: ~2GB RAM needed (safe for 4GB systems)
-- **Llama 3.2 1B**: ~6GB RAM needed (requires 8GB+ total system RAM)
+- **TinyLlama 1.1B**: ~4GB RAM needed (requires 6GB+ total system RAM)
 
 **Solutions**:
 
@@ -381,14 +295,14 @@ You should see:
 
    - Docker Desktop → Settings → Resources → Memory
    - For GPT-2 only: Allocate at least 4GB
-   - For both models: Allocate at least 8GB
+   - For both models: Allocate at least 6GB
    - Apply & Restart Docker
 
 2. **Stick to GPT-2 if you have limited RAM**:
 
    - The application will work fine with just GPT-2
    - All educational objectives met with default model
-   - Llama 3.2 is an enhancement, not a requirement
+   - TinyLlama is an enhancement, not a requirement
 
 3. **Close other applications**:
 
@@ -451,16 +365,16 @@ RUN python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
     AutoTokenizer.from_pretrained('gpt2'); \
     print('✓ GPT-2 ready')"
 
-# Pre-download Llama 3.2 1B (if HF_TOKEN available)
+# Pre-download TinyLlama 1.1B (if HF_TOKEN available)
 ARG HF_TOKEN
 RUN if [ -n "$HF_TOKEN" ]; then \
     python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; \
-    print('Downloading Llama 3.2 1B...'); \
+    print('Downloading TinyLlama 1.1B...'); \
     AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3.2-1B', token='${HF_TOKEN}'); \
     AutoTokenizer.from_pretrained('meta-llama/Llama-3.2-1B', token='${HF_TOKEN}'); \
-    print('✓ Llama 3.2 1B ready')"; \
+    print('✓ TinyLlama 1.1B ready')"; \
 else \
-    echo "⚠ HF_TOKEN not provided, skipping Llama 3.2 1B"; \
+    echo "⚠ HF_TOKEN not provided, skipping TinyLlama 1.1B"; \
 fi
 ```
 
@@ -498,9 +412,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 print('Testing GPT-2...')
 AutoModelForCausalLM.from_pretrained('gpt2')
 print('✓ GPT-2 works')
-print('Testing Llama 3.2 1B...')
+print('Testing TinyLlama 1.1B...')
 AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3.2-1B')
-print('✓ Llama 3.2 1B works')
+print('✓ TinyLlama 1.1B works')
 "
 ```
 

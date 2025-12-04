@@ -42,7 +42,7 @@ The application uses a **unified Docker architecture** with **multi-model suppor
   - **Multi-model registry**: Loads multiple models at startup
   - **Supported models**:
     - GPT-2 (124M) - Always available, no authentication required
-    - Llama 3.2 1B - Optional, requires HuggingFace token
+    - TinyLlama 1.1B - Modern alternative, no authentication required
   - Calculates token probabilities via model inference
   - Serves both API endpoints and frontend static files
   - Manages generation sessions with model binding
@@ -51,7 +51,7 @@ For detailed architecture information, see [`docs/ARCHITECTURE.md`](docs/ARCHITE
 
 ## Features
 
-- **Multi-model support**: Choose between GPT-2 and Llama 3.2 1B
+- **Multi-model support**: Choose between GPT-2 and TinyLlama 1.1B
 - Interactive probability wheel with accurate probability-to-wedge-size mapping
 - Two selection modes:
   - **Spin Mode**: Random probabilistic selection (authentic LLM behavior)
@@ -80,12 +80,8 @@ The easiest way to run the project:
 git clone <repository-url>
 cd ai-fun-token-wheel
 
-# Build and start the application (GPT-2 only)
+# Build and start the application
 docker compose up --build
-
-# OR: Build with both models (requires HuggingFace token)
-docker build --build-arg HF_TOKEN=your_token_here -t ai-fun-token-wheel .
-docker run -p 8000:8000 ai-fun-token-wheel
 ```
 
 Access the application:
@@ -93,12 +89,7 @@ Access the application:
 - **Application:** <http://localhost:8000>
 - **API Documentation:** <http://localhost:8000/docs>
 
-The first run will download models (~500MB for GPT-2, ~5.5GB for both models), which are cached for future runs.
-
-**For Llama 3.2 1B support:**
-1. Get a HuggingFace token: <https://huggingface.co/settings/tokens>
-2. Accept the license: <https://huggingface.co/meta-llama/Llama-3.2-1B>
-3. See `.env.example` for configuration options
+The first run will download models (~500MB for GPT-2, ~2.2GB for TinyLlama, total ~2.7GB), which are cached for future runs. Both models are ungated and require no authentication.
 
 For detailed local development and production deployment instructions, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
@@ -117,17 +108,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Optional: Configure HuggingFace token for Llama
-cp ../.env.example ../.env
-# Edit .env and add your HF_TOKEN
-
 # Start the server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Backend available at <http://localhost:8000>
 
-**Note**: Without HF_TOKEN, only GPT-2 will be available. With HF_TOKEN, both models load.
+**Note**: Both GPT-2 and TinyLlama will download automatically on first run (no authentication required).
 
 #### Frontend Setup
 
@@ -162,7 +149,7 @@ If running manually, press `Ctrl+C` in each terminal.
 
 ## Usage
 
-1. **Select a model**: Choose between GPT-2 or Llama 3.2 1B from the dropdown
+1. **Select a model**: Choose between GPT-2 or TinyLlama 1.1B from the dropdown
 2. **Enter a prompt**: Type a starting text (e.g., "The cat sat on the")
 3. **Click "Start Generation"**: The backend calculates token probabilities and displays the wheel
 4. **Select a token**:
@@ -175,13 +162,13 @@ If running manually, press `Ctrl+C` in each terminal.
 
 ### Educational Tips
 
-- **Compare models**: Try the same prompt with GPT-2 vs. Llama to see different tokenization and predictions
+- **Compare models**: Try the same prompt with GPT-2 vs. TinyLlama to see different tokenization and predictions
 - Try different prompts to see how context affects probabilities
 - Compare spinning (random) vs. manual selection to understand sampling
 - Notice how wedge sizes change as context evolves
 - Explore the "Other" category to see less likely options
 - Observe how certain contexts create peaked distributions (clear winner) vs. flat distributions (model uncertainty)
-- Notice how larger models (Llama 1.2B) may produce different token distributions than smaller ones (GPT-2 124M)
+- Notice how larger models (TinyLlama 1.1B) may produce different token distributions than smaller ones (GPT-2 124M)
 
 ## Project Structure
 
@@ -286,24 +273,16 @@ npm test
 
 Configuration options can be passed in the `/api/start` request:
 
-- `model`: Model to use - "gpt2" or "llama-3.2-1b" (default: "gpt2")
+- `model`: Model to use - "gpt2" or "tinyllama-1.1b" (default: "gpt2")
 - `min_threshold`: Primary probability threshold (default: 0.1 = 10%)
 - `secondary_threshold`: Secondary threshold for flat distributions (default: 0.05 = 5%)
 
 ### Environment Variables
 
-Create a `.env` file in the project root (see `.env.example`):
-
-```bash
-# HuggingFace token for Llama 3.2 1B (optional)
-HF_TOKEN=your_token_here
-```
-
-**Backend** (loaded via python-dotenv):
-- `HF_TOKEN`: HuggingFace API token for gated models
-
 **Frontend** (Vite environment variables):
 - `VITE_API_URL`: Backend API URL (automatically set during Docker build)
+
+**Note**: No authentication tokens required - both GPT-2 and TinyLlama are ungated models.
 
 ## Known Limitations
 
@@ -313,7 +292,7 @@ HF_TOKEN=your_token_here
 4. **Generation Quality**: These models are educational tools, not production systems
 5. **Local Resources**:
    - GPT-2 only: ~2GB RAM
-   - Both models: ~8GB RAM
+   - Both models: ~6GB RAM (TinyLlama requires ~4GB)
 6. **Session Locking**: Cannot switch models mid-session (by design, for clarity)
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detailed discussion of design decisions and trade-offs.
@@ -348,14 +327,11 @@ For complete deployment instructions and platform-specific guidance, see [`docs/
 ### Model not loading
 
 The first run downloads models:
-- GPT-2: ~500MB (always)
-- Llama 3.2 1B: ~5GB (if HF_TOKEN provided)
 
-Models are cached in Docker volumes or `~/.cache/huggingface/`.
+- GPT-2: ~500MB
+- TinyLlama 1.1B: ~2.2GB
 
-If Llama shows as unavailable, ensure you've:
-1. Set HF_TOKEN in `.env`
-2. Accepted the model license at <https://huggingface.co/meta-llama/Llama-3.2-1B>
+Models are cached in Docker volumes or `~/.cache/huggingface/`. Both models are ungated and require no authentication.
 
 ### Port conflicts
 
@@ -369,8 +345,9 @@ ports:
 ### Memory issues
 
 Ensure Docker has sufficient RAM allocated:
+
 - GPT-2 only: 2GB minimum
-- Both models: 8GB minimum
+- Both models: 6GB minimum
 
 Configure in Docker Desktop → Settings → Resources.
 
